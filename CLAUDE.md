@@ -169,7 +169,7 @@ scouting_tool/
 - [x] `engine/validation_set.py` — ground truth παικτών
 - [x] Archetype design: 18 primitives + 29 compounds (compositional)
 - [x] `archetype_spec.md`, `README.md`
-- [ ] Schema update: `oreb_pct`, `dreb_pct`, `fga`
+- [ ] Schema update: `oreb_pct`, `dreb_pct`
 - [ ] `engine/traits.py` (από το spec)
 - [ ] `engine/presets.py` (από το spec)
 - [ ] Data pipeline (fetch + merge + load)
@@ -181,7 +181,7 @@ scouting_tool/
 
 ## Επόμενα βήματα (σειρά)
 
-1. **Schema update** — πρόσθεσε `oreb_pct`, `dreb_pct`, `fga` στο `models.py`.
+1. **Schema update** — πρόσθεσε `oreb_pct`, `dreb_pct` στο `models.py`.
 2. **`traits.py`** — κωδικοποίησε τα 18 primitives από το `archetype_spec.md`
    (positions + signals με πρόσημο=κατεύθυνση).
 3. **`presets.py`** — τα 29 compounds (σετ traits → όνομα).

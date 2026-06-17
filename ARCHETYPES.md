@@ -81,7 +81,7 @@ Primitive Traits & Compound Archetypes
 Για να δουλέψουν σωστά κάποια signals, χρειάζονται τρεις επιπλέον στήλες στο `player_seasons`:
 
 - **`oreb_pct` & `dreb_pct`** (χωριστά) — για διαχωρισμό `offensive_rebounder` από `defensive_rebounder`. Υπάρχουν στο Advanced API (`OREB_PCT`, `DREB_PCT`).
-- **`fga`** (field goals attempted) — για υπολογισμό **3PA rate** (`fg3a/fga`) και **FT rate** (`fta/fga`), πιο σωστοί δείκτες από τα raw νούμερα. Κρίσιμο για τον διαχωρισμό `slasher` από shooters.
+— για υπολογισμό **3PA rate** (`fg3a/fga`) και **FT rate** (`fta/fga`), πιο σωστοί δείκτες από τα raw νούμερα. Κρίσιμο για τον διαχωρισμό `slasher` από shooters.
 
 ---
 
