@@ -1,7 +1,5 @@
 """
-ProspectMatch — NBA Scouting Tool (demo)
-
-Ο χρήστης ορίζει stats + βάρη + traits → top-N πιο όμοιοι παίκτες + explanation.
+ProspectMatch — NBA Scouting Tool (v0.2)
 """
 
 import sys
@@ -11,12 +9,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import streamlit as st
 import pandas as pd
+import numpy as np
 
 from preprocessing import preprocess, FEATURE_COLS
 from archetypes import classify
 from similarity import find_similar
 
-# ─── Config ───────────────────────────────────────────────────────────────────
+# ─── Page config ──────────────────────────────────────────────────────────────
 
 st.set_page_config(
     page_title="ProspectMatch",
@@ -24,7 +23,25 @@ st.set_page_config(
     layout="wide",
 )
 
-# ─── Load data (cached) ───────────────────────────────────────────────────────
+st.markdown("""
+<style>
+    .stat-row { display:flex; justify-content:space-between; padding:2px 0; }
+    .stat-label { color:#888; font-size:0.85rem; }
+    .stat-match { color:#22c55e; font-weight:600; }
+    .stat-close  { color:#f59e0b; font-weight:600; }
+    .stat-far   { color:#ef4444; font-weight:600; }
+    .badge {
+        display:inline-block; padding:2px 8px; border-radius:4px;
+        font-size:0.75rem; font-weight:600; margin-right:4px;
+    }
+    .badge-pos  { background:#1e3a5f; color:#93c5fd; }
+    .badge-arch { background:#1a2e1a; color:#86efac; }
+    .rank-num { font-size:1.5rem; font-weight:800; color:#6b7280; margin-right:8px; }
+    div[data-testid="stExpander"] > div:first-child { padding: 4px 0; }
+</style>
+""", unsafe_allow_html=True)
+
+# ─── Load data ─────────────────────────────────────────────────────────────────
 
 @st.cache_resource(show_spinner="Φόρτωση dataset...")
 def load_data():
@@ -32,10 +49,9 @@ def load_data():
     df = classify(df)
     return df, matrix, scaler
 
-
 df, matrix, scaler = load_data()
 
-# ─── Helpers ──────────────────────────────────────────────────────────────────
+# ─── Constants ────────────────────────────────────────────────────────────────
 
 ALL_TRAITS = [
     "on_ball_creator", "slasher", "midrange_scorer",
@@ -48,7 +64,6 @@ ALL_TRAITS = [
     "efficient_finisher",
 ]
 
-# Columns that are stored as decimals (0.0–1.0) but the user thinks in percentages
 PCT_COLS = {
     "usg_pct", "ts_pct", "efg_pct", "fg3_pct", "ft_pct",
     "ast_pct", "oreb_pct", "dreb_pct", "pct_pts_2pt_mr",
@@ -57,30 +72,53 @@ PCT_COLS = {
 DISPLAY_LABELS = {
     "pts":           "Points (PPG)",
     "usg_pct":       "Usage % (USG%)",
-    "ts_pct":        "True Shooting % (TS%)",
-    "efg_pct":       "Effective FG% (eFG%)",
-    "fg3a":          "3PA per game",
-    "fg3_pct":       "3P%",
-    "fta":           "FTA per game",
-    "ft_pct":        "FT%",
+    "ts_pct":        "True Shooting %",
+    "efg_pct":       "Effective FG%",
+    "fg3a":          "3-Pointers Attempted",
+    "fg3_pct":       "3-Point %",
+    "fta":           "Free Throw Attempts",
+    "ft_pct":        "Free Throw %",
     "pct_pts_2pt_mr":"% Points from Mid-Range",
-    "ast_pct":       "Assist % (AST%)",
-    "ast_to":        "AST/TO ratio",
-    "tov":           "Turnovers (TOV)",
-    "oreb_pct":      "Offensive Reb % (OREB%)",
-    "dreb_pct":      "Defensive Reb % (DREB%)",
-    "stl":           "Steals (STL)",
-    "blk":           "Blocks (BLK)",
-    "deflections":   "Deflections per game",
+    "ast_pct":       "Assist %",
+    "ast_to":        "AST/TO Ratio",
+    "tov":           "Turnovers",
+    "oreb_pct":      "Off. Rebound %",
+    "dreb_pct":      "Def. Rebound %",
+    "stl":           "Steals",
+    "blk":           "Blocks",
+    "deflections":   "Deflections",
     "net_rating":    "Net Rating",
     "height_cm":     "Height (cm)",
     "weight_lbs":    "Weight (lbs)",
 }
 
-# Realistic slider ranges (in user-facing units, i.e., percentages × 100)
+# Format for display (after converting decimal → human units)
+FORMAT = {
+    "pts":           ("{:.1f}", "PPG"),
+    "usg_pct":       ("{:.1f}", "%"),
+    "ts_pct":        ("{:.1f}", "%"),
+    "efg_pct":       ("{:.1f}", "%"),
+    "fg3a":          ("{:.1f}", "/gm"),
+    "fg3_pct":       ("{:.1f}", "%"),
+    "fta":           ("{:.1f}", "/gm"),
+    "ft_pct":        ("{:.1f}", "%"),
+    "pct_pts_2pt_mr":("{:.1f}", "%"),
+    "ast_pct":       ("{:.1f}", "%"),
+    "ast_to":        ("{:.2f}", ""),
+    "tov":           ("{:.1f}", "/gm"),
+    "oreb_pct":      ("{:.1f}", "%"),
+    "dreb_pct":      ("{:.1f}", "%"),
+    "stl":           ("{:.2f}", "/gm"),
+    "blk":           ("{:.2f}", "/gm"),
+    "deflections":   ("{:.2f}", "/gm"),
+    "net_rating":    ("{:+.1f}", ""),
+    "height_cm":     ("{:.0f}", " cm"),
+    "weight_lbs":    ("{:.0f}", " lbs"),
+}
+
 RANGES = {
     "pts":           (0.0,  45.0, 0.5),
-    "usg_pct":       (5.0,  40.0, 0.5),   # shown as %
+    "usg_pct":       (5.0,  40.0, 0.5),
     "ts_pct":        (35.0, 80.0, 0.5),
     "efg_pct":       (30.0, 75.0, 0.5),
     "fg3a":          (0.0,  16.0, 0.5),
@@ -101,70 +139,91 @@ RANGES = {
     "weight_lbs":    (150.0, 290.0, 5.0),
 }
 
-def ui_to_internal(col: str, val: float) -> float:
-    """Μετατρέπει UI τιμή (ανθρώπινες μονάδες) → εσωτερική (decimal για pct cols)."""
+GROUPS = {
+    "Scoring & Efficiency": ["pts", "usg_pct", "ts_pct", "efg_pct"],
+    "Shooting":             ["fg3a", "fg3_pct", "fta", "ft_pct", "pct_pts_2pt_mr"],
+    "Playmaking":           ["ast_pct", "ast_to", "tov"],
+    "Rebounding":           ["oreb_pct", "dreb_pct"],
+    "Defense":              ["stl", "blk", "deflections"],
+    "Impact & Physical":    ["net_rating", "height_cm", "weight_lbs"],
+}
+
+# ─── Helpers ──────────────────────────────────────────────────────────────────
+
+def ui_to_internal(col, val):
     return val / 100.0 if col in PCT_COLS else val
 
+def internal_to_display(col, val):
+    """Decimal internal value → human-readable (multiply pct cols by 100)."""
+    return val * 100.0 if col in PCT_COLS else val
 
-# ─── Sidebar — Profile Builder ─────────────────────────────────────────────────
+def z_to_display(col: str, z: float) -> float:
+    """Z-score → raw value → display value."""
+    i = FEATURE_COLS.index(col)
+    raw = float(z) * scaler.scale_[i] + scaler.mean_[i]
+    return internal_to_display(col, raw)
+
+def fmt(col: str, val: float) -> str:
+    tmpl, unit = FORMAT[col]
+    return tmpl.format(val) + unit
+
+
+# ─── Sidebar ──────────────────────────────────────────────────────────────────
 
 st.sidebar.title("🏀 ProspectMatch")
-st.sidebar.markdown("Ορίσε το player profile που ψάχνεις.")
+st.sidebar.caption("NBA Player Similarity Engine")
+st.sidebar.divider()
 
-# Season range
-st.sidebar.subheader("Εποχή")
-year_range = st.sidebar.slider("Season range", 1996, 2025, (2010, 2025), step=1)
+st.sidebar.subheader("Season Range")
+year_range = st.sidebar.slider("", 1996, 2025, (2010, 2025), step=1,
+                                label_visibility="collapsed")
 season_range_str = f"{year_range[0]}-{year_range[1]}"
 
-# Traits
-st.sidebar.subheader("Traits (boost, όχι hard filter)")
+st.sidebar.subheader("Trait Boost")
+st.sidebar.caption("Μικρό bonus για παίκτες με αυτά τα traits — δεν αποκλείει κανέναν.")
 selected_traits = st.sidebar.multiselect(
-    "Επίλεξε traits που θες να εμφανίζονται:",
+    "",
     options=ALL_TRAITS,
     default=[],
     format_func=lambda t: t.replace("_", " ").title(),
+    label_visibility="collapsed",
 )
 
-# Number of results
+st.sidebar.divider()
 top_n = st.sidebar.slider("Αριθμός αποτελεσμάτων", 5, 20, 10)
 
-# ─── Main — Stats + Weights ────────────────────────────────────────────────────
+# ─── Header ───────────────────────────────────────────────────────────────────
 
-st.title("ProspectMatch — NBA Player Similarity")
-st.caption("Ορίσε τα stats που σε ενδιαφέρουν, δώσε βάρη, και βρες παίκτες που ταιριάζουν.")
+st.title("ProspectMatch")
+st.markdown("Ορίσε το player profile που ψάχνεις — stats + βάρη — και βρες τους πιο όμοιους παίκτες της NBA.")
+st.divider()
 
-col_stats, col_weights = st.columns([3, 1], gap="large")
+# ─── Stat builder ─────────────────────────────────────────────────────────────
 
-with col_stats:
-    st.subheader("Stats")
-    st.markdown("Άναψε μόνο τα stats που θέλεις να αξιολογηθούν. Αν ένα stat είναι off, δεν επηρεάζει το αποτέλεσμα.")
-
-with col_weights:
-    st.subheader("Βάρη")
-    st.markdown("1 = κανονικό · 3 = πολύ σημαντικό")
-
-# Grouping for cleaner UI
-GROUPS = {
-    "Scoring & Efficiency": ["pts", "usg_pct", "ts_pct", "efg_pct"],
-    "Shooting": ["fg3a", "fg3_pct", "fta", "ft_pct", "pct_pts_2pt_mr"],
-    "Playmaking": ["ast_pct", "ast_to", "tov"],
-    "Rebounding": ["oreb_pct", "dreb_pct"],
-    "Defense": ["stl", "blk", "deflections"],
-    "Impact & Physical": ["net_rating", "height_cm", "weight_lbs"],
-}
-
-user_stats = {}
-weights = {}
+user_stats: dict = {}
+weights: dict = {}
 
 for group_name, cols in GROUPS.items():
-    st.markdown(f"**{group_name}**")
+    st.markdown(f"#### {group_name}")
     for col in cols:
         lo, hi, step = RANGES[col]
-        default_val = (lo + hi) / 2
-        c1, c2, c3 = st.columns([0.5, 3, 1])
-        with c1:
-            enabled = st.checkbox("", key=f"en_{col}", value=False)
-        with c2:
+        default_val = round((lo + hi) / 2 / step) * step
+
+        c_en, c_label, c_slider, c_weight = st.columns([0.25, 1.4, 3, 0.7])
+
+        with c_en:
+            st.write("")  # vertical align
+            enabled = st.checkbox("", key=f"en_{col}", value=False, label_visibility="collapsed")
+
+        with c_label:
+            st.write("")
+            color = "#e5e7eb" if enabled else "#6b7280"
+            st.markdown(
+                f'<span style="color:{color};font-size:0.85rem;">{DISPLAY_LABELS[col]}</span>',
+                unsafe_allow_html=True,
+            )
+
+        with c_slider:
             val = st.slider(
                 DISPLAY_LABELS[col],
                 min_value=lo, max_value=hi, value=default_val, step=step,
@@ -172,26 +231,43 @@ for group_name, cols in GROUPS.items():
                 disabled=not enabled,
                 label_visibility="collapsed",
             )
-            st.caption(DISPLAY_LABELS[col])
-        with c3:
+
+        with c_weight:
             w = st.number_input(
-                "w", min_value=0.1, max_value=5.0, value=1.0, step=0.5,
+                "×", min_value=0.1, max_value=5.0, value=1.0, step=0.5,
                 key=f"w_{col}",
                 disabled=not enabled,
-                label_visibility="collapsed",
+                help="Βάρος: 1 = κανονικό, 3 = πολύ σημαντικό",
             )
+
         if enabled:
             user_stats[col] = ui_to_internal(col, val)
             if w != 1.0:
                 weights[col] = w
-    st.divider()
 
-# ─── Run matching ──────────────────────────────────────────────────────────────
+    st.markdown("")
 
-run = st.button("🔍 Βρες παίκτες", type="primary", disabled=len(user_stats) == 0)
+st.divider()
 
-if len(user_stats) == 0:
-    st.info("Άναψε τουλάχιστον ένα stat για να ξεκινήσει η αναζήτηση.")
+# ─── Active profile summary ────────────────────────────────────────────────────
+
+if user_stats:
+    pills = " &nbsp;·&nbsp; ".join(
+        f'<b>{DISPLAY_LABELS[c]}</b>: {fmt(c, internal_to_display(c, v))}'
+        + (f' <span style="color:#f59e0b">×{weights[c]:.0f}</span>' if c in weights else "")
+        for c, v in user_stats.items()
+    )
+    st.markdown(f'<div style="font-size:0.82rem;color:#9ca3af;padding:4px 0 12px 0">{pills}</div>',
+                unsafe_allow_html=True)
+
+run = st.button(
+    "🔍 Βρες παίκτες" if user_stats else "Άναψε τουλάχιστον ένα stat",
+    type="primary",
+    disabled=not user_stats,
+    use_container_width=True,
+)
+
+# ─── Results ──────────────────────────────────────────────────────────────────
 
 if run and user_stats:
     with st.spinner("Αναζήτηση..."):
@@ -208,31 +284,112 @@ if run and user_stats:
 
     if results.empty:
         st.warning("Δεν βρέθηκαν αποτελέσματα. Δοκίμασε να διευρύνεις το season range.")
-    else:
-        st.subheader(f"Top {len(results)} αποτελέσματα")
+        st.stop()
 
-        for rank, (_, row) in enumerate(results.iterrows(), 1):
-            sim_pct = int(row["similarity"] * 100)
-            with st.expander(
-                f"#{rank}  **{row['player_name']}**  ({row['season']})  —  "
-                f"{row['compound_archetype']}  —  similarity {sim_pct}%",
-                expanded=(rank <= 3),
-            ):
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.markdown("**✅ Matching features**")
-                    for e in row["explanation"]["matching"][:4]:
-                        label = DISPLAY_LABELS.get(e["feature"], e["feature"])
-                        st.markdown(f"- **{label}**: user z={e['user_z']:+.2f} · player z={e['player_z']:+.2f}")
-                with c2:
-                    st.markdown("**⚠️ Diverging features**")
-                    for e in row["explanation"]["diverging"][:3]:
-                        label = DISPLAY_LABELS.get(e["feature"], e["feature"])
-                        st.markdown(f"- **{label}**: user z={e['user_z']:+.2f} · player z={e['player_z']:+.2f}")
+    st.subheader(f"Top {len(results)} matches")
 
-                st.caption(
-                    f"Position: {row.get('position_group', '—')} · "
-                    f"Height: {row.get('height_cm', '—')} cm · "
-                    f"Weight: {row.get('weight_lbs', '—')} lbs · "
-                    f"Base sim: {row['similarity']:.4f} · Boost: {row['boost']:.4f}"
+    for rank, (_, row) in enumerate(results.iterrows(), 1):
+        sim_pct   = row["similarity"]
+        pos       = row.get("position_group", "—")
+        arch      = row["compound_archetype"]
+        exp       = row["explanation"]
+
+        # Colour the rank medal
+        medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank, f"#{rank}")
+
+        header = (
+            f"{medal} &nbsp;<b style='font-size:1.1rem'>{row['player_name']}</b>"
+            f"&nbsp;&nbsp;<span style='color:#9ca3af'>{row['season']}</span>"
+            f"&nbsp;&nbsp;"
+            f"<span class='badge badge-pos'>{pos}</span>"
+            f"<span class='badge badge-arch'>{arch}</span>"
+        )
+
+        with st.expander(
+            f"{'★ ' if rank <= 3 else ''}{row['player_name']} ({row['season']}) — {arch} — {sim_pct:.0%}",
+            expanded=(rank <= 3),
+        ):
+            st.markdown(f'<div style="margin-bottom:8px">{header}</div>', unsafe_allow_html=True)
+
+            # Similarity progress bar
+            bar_col, pct_col = st.columns([5, 1])
+            with bar_col:
+                st.progress(min(sim_pct, 1.0))
+            with pct_col:
+                st.markdown(
+                    f'<div style="text-align:right;font-weight:700;font-size:1.1rem;'
+                    f'color:{"#22c55e" if sim_pct>=0.55 else "#f59e0b" if sim_pct>=0.35 else "#ef4444"}">'
+                    f'{sim_pct:.0%}</div>',
+                    unsafe_allow_html=True,
                 )
+
+            st.markdown("")
+
+            # Stat comparison — matching features
+            matching = exp.get("matching", [])[:4]
+            diverging = exp.get("diverging", [])[:3]
+
+            if matching:
+                mc, dc = st.columns(2, gap="large")
+
+                with mc:
+                    st.markdown("**You asked → Player had**")
+                    rows_data = []
+                    for e in matching:
+                        col_name = e["feature"]
+                        label    = DISPLAY_LABELS.get(col_name, col_name)
+                        user_val = fmt(col_name, z_to_display(col_name, e["user_z"]))
+                        plyr_val = fmt(col_name, z_to_display(col_name, e["player_z"]))
+                        diff_abs = abs(e["user_z"] - e["player_z"])
+                        css      = "stat-match" if diff_abs < 0.4 else "stat-close" if diff_abs < 1.0 else "stat-far"
+                        rows_data.append((label, user_val, plyr_val, css))
+
+                    table_html = "<table style='width:100%;font-size:0.85rem;border-collapse:collapse'>"
+                    for label, uv, pv, css in rows_data:
+                        table_html += (
+                            f"<tr>"
+                            f"<td style='color:#9ca3af;padding:3px 8px 3px 0'>{label}</td>"
+                            f"<td style='padding:3px 6px'>{uv}</td>"
+                            f"<td style='color:#6b7280;padding:3px 4px'>→</td>"
+                            f"<td class='{css}' style='padding:3px 0'>{pv}</td>"
+                            f"</tr>"
+                        )
+                    table_html += "</table>"
+                    st.markdown(table_html, unsafe_allow_html=True)
+
+                with dc:
+                    if diverging:
+                        st.markdown("**Biggest differences**")
+                        div_html = "<table style='width:100%;font-size:0.85rem;border-collapse:collapse'>"
+                        for e in diverging:
+                            col_name = e["feature"]
+                            label    = DISPLAY_LABELS.get(col_name, col_name)
+                            user_val = fmt(col_name, z_to_display(col_name, e["user_z"]))
+                            plyr_val = fmt(col_name, z_to_display(col_name, e["player_z"]))
+                            diff_abs = abs(e["user_z"] - e["player_z"])
+                            css      = "stat-close" if diff_abs < 1.5 else "stat-far"
+                            div_html += (
+                                f"<tr>"
+                                f"<td style='color:#9ca3af;padding:3px 8px 3px 0'>{label}</td>"
+                                f"<td style='padding:3px 6px'>{user_val}</td>"
+                                f"<td style='color:#6b7280;padding:3px 4px'>→</td>"
+                                f"<td class='{css}' style='padding:3px 0'>{plyr_val}</td>"
+                                f"</tr>"
+                            )
+                        div_html += "</table>"
+                        st.markdown(div_html, unsafe_allow_html=True)
+
+            # Footer
+            h   = row.get("height_cm", "—")
+            w_p = row.get("weight_lbs", "—")
+            h_str = f"{h:.0f} cm" if isinstance(h, (int, float)) and not np.isnan(h) else "—"
+            w_str = f"{w_p:.0f} lbs" if isinstance(w_p, (int, float)) and not np.isnan(w_p) else "—"
+            boost_str = f"+{row['boost']:.4f}" if row["boost"] > 0 else "—"
+
+            st.markdown(
+                f'<div style="margin-top:10px;font-size:0.75rem;color:#6b7280">'
+                f'{h_str} &nbsp;·&nbsp; {w_str} &nbsp;·&nbsp; '
+                f'Base sim: {row["similarity"]:.4f} &nbsp;·&nbsp; Trait boost: {boost_str}'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
