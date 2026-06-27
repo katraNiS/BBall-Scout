@@ -45,7 +45,7 @@ FEATURE_COLS = [
     "pts", "usg_pct", "ts_pct", "efg_pct",
     # Shooting profile (volume + accuracy + zone distribution)
     "fg3a", "fg3_pct", "fta", "ft_pct",
-    "pct_pts_midrange",   # % πόντων από mid-range — κρίσιμο για midrange_scorer
+    "pct_pts_2pt_mr",     # % πόντων από mid-range (API: PCT_PTS_2PT_MR) — κρίσιμο για midrange_scorer
     # Playmaking
     "ast_pct", "ast_to", "tov",
     # Rebounding (percentage-adjusted για να μην ευνοεί high-minute players)
@@ -102,7 +102,7 @@ def load_and_clean(path: Path = DATASET_PATH) -> pd.DataFrame:
 
     # Scoring profile (pct_pts_midrange κ.λπ.):
     # Σε περίπτωση που κάποια σεζόν δεν έχει Scoring data → group median.
-    scoring_like = [c for c in ("pct_pts_midrange", "pct_fga_3pt", "pct_pts_paint", "pct_pts_3pt", "pct_pts_ft") if c in df.columns]
+    scoring_like = [c for c in ("pct_pts_2pt_mr", "pct_pts_paint", "pct_fga_3pt", "pct_pts_3pt", "pct_pts_ft", "pct_uast_2pm") if c in df.columns]
     for col in scoring_like:
         group_medians = df.groupby("position_group")[col].transform("median")
         df[col] = df[col].fillna(group_medians).fillna(df[col].median())

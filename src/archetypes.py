@@ -72,7 +72,7 @@ TRAITS: dict[str, Trait] = {
             # Κύριο signal: % πόντων από mid-range (από Scoring endpoint).
             # Πριν: ορίζαμε αρνητικά (χαμηλό fg3a) — έπιανε bigs, όχι πραγματικούς midrange scorers.
             # Τώρα: θετικό, direct signal. DeRozan ~35%, Curry ~5% → διακρίνει σωστά.
-            Signal("pct_pts_midrange", weight=3.0),
+            Signal("pct_pts_2pt_mr", weight=3.0),
             Signal("pts",              weight=0.5),  # χρειάζεται volume για να μετρά
             Signal("fg3a",             weight=-0.5), # αδύνατο backup — διατηρείται για pre-Scoring seasons
         ],
@@ -136,6 +136,9 @@ TRAITS: dict[str, Trait] = {
             Signal("ast_pct", weight=3.0, pos_rel=True),  # vs άλλα bigs
             Signal("ast_to",  weight=1.5),
             Signal("pts",     weight=0.5),
+            # reb_pct: οι πραγματικοί playmaking bigs (Jokić, Draymond) rebound καλά —
+            # βοηθά να ξεχωρίσουν από stretch bigs που απλώς έχουν καλό ast_to
+            Signal("reb_pct", weight=0.5, pos_rel=True),
         ],
     ),
 
@@ -223,9 +226,11 @@ TRAITS: dict[str, Trait] = {
         name="help_defender",
         positions=["F", "F-C", "C"],
         signals=[
-            Signal("deflections",   weight=1.5),  # νέο: help defense = αντίδραση, όχι μόνο block
-            Signal("stl",           weight=1.5),
-            Signal("blk",           weight=1.5),
+            Signal("deflections",   weight=1.5),
+            # pos_rel=True: guards έχουν globally υψηλότερα stl/blk → χωρίς pos_rel
+            # ένας average guard θα σκοράρει καλύτερα από έναν elite defensive big.
+            Signal("stl",           weight=1.5, pos_rel=True),
+            Signal("blk",           weight=1.5, pos_rel=True),
             Signal("def_rating",    weight=-2.0),
         ],
         fine=True,  # def_rating εξαρτάται από ομάδα · deflections μόνο 2015-16+
@@ -299,6 +304,8 @@ COMPOUNDS: dict[str, frozenset[str]] = {
         frozenset({"movement_shooter", "spot_up_shooter"}),
     "Sharpshooter":
         frozenset({"movement_shooter", "spot_up_shooter", "efficient_finisher"}),
+    "Two-Way Sharpshooter":
+        frozenset({"movement_shooter", "spot_up_shooter", "efficient_finisher", "versatile_wing_defender"}),
     # Wings ───────────────────────────────────────────────────────────────────
     "Two-Way Wing":
         frozenset({"on_ball_creator", "versatile_wing_defender"}),
@@ -317,6 +324,11 @@ COMPOUNDS: dict[str, frozenset[str]] = {
     # Bigs ────────────────────────────────────────────────────────────────────
     "Point Center":
         frozenset({"playmaking_big", "post_scorer", "efficient_finisher"}),
+    # Μετά το Point Center: για unicorns με guard+big traits αλλά χωρίς efficient_finisher (LeBron).
+    # Η θέση στο dict αποφασίζει tie: Point Center (3 traits) συναντάται πρώτο,
+    # οπότε Giannis/KD/Embiid (έχουν efficient_finisher) παίρνουν Point Center.
+    "All-Around Forward":
+        frozenset({"on_ball_creator", "slasher", "playmaking_big"}),
     "Two-Way Scoring Big":
         frozenset({"post_scorer", "rim_protector"}),
     "Stretch Big":
@@ -331,8 +343,12 @@ COMPOUNDS: dict[str, frozenset[str]] = {
         frozenset({"rim_protector", "defensive_rebounder"}),
     "Playmaking Rim Protector":
         frozenset({"playmaking_big", "rim_protector", "help_defender"}),
+    # efficient_finisher προστέθηκε για να μην το παίρνει ο Draymond (δεν είναι efficient scorer)
     "Versatile Swiss-Army Big":
-        frozenset({"playmaking_big", "versatile_wing_defender", "stretch_big"}),
+        frozenset({"playmaking_big", "versatile_wing_defender", "stretch_big", "efficient_finisher"}),
+    # Για Draymond-type: playmaking big + wing defense + help defense, χωρίς shooting
+    "Defensive Playmaking Big":
+        frozenset({"playmaking_big", "versatile_wing_defender", "help_defender"}),
     "Energy Big":
         frozenset({"offensive_rebounder", "roll_finisher", "help_defender"}),
     "Throwback Post Hub":

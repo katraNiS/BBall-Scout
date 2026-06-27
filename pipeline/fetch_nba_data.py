@@ -83,8 +83,10 @@ ADVANCED_COLS = [
 SCORING_COLS = [
     "PLAYER_ID",
     "PCT_FGA_2PT", "PCT_FGA_3PT",
-    "PCT_PTS_MIDRANGE", "PCT_PTS_PAINT",
+    "PCT_PTS_2PT_MR",    # % πόντων από mid-range (API name: PCT_PTS_2PT_MR, όχι MIDRANGE)
+    "PCT_PTS_PAINT",
     "PCT_PTS_3PT", "PCT_PTS_FT",
+    "PCT_UAST_2PM",      # % of 2PM που είναι unassisted = self-creation signal (post scorer / creator)
 ]
 
 # Hustle: defensive activity metrics — μόνο από 2015-16.
@@ -226,7 +228,7 @@ def fetch_hustle_season(season: str) -> pd.DataFrame | None:
         log.info(f"  {season} Hustle...")
         df = LeagueHustleStatsPlayer(
             season=season,
-            per_mode_simple="PerGame",
+            per_mode_time="PerGame",       # σωστό parameter name σε αυτή την έκδοση nba_api
             season_type_all_star="Regular Season",
             timeout=30,
         ).get_data_frames()[0]
