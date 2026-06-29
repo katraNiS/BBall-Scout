@@ -10,8 +10,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 import streamlit as st
 import pandas as pd
 import numpy as np
+import plotly.graph_objects as go
 
-from preprocessing import preprocess, FEATURE_COLS
+from preprocessing import preprocess, FEATURE_COLS, build_percentile_matrix, stat_to_percentile
 from archetypes import classify
 from similarity import find_similar
 
@@ -47,6 +48,8 @@ st.markdown("""
 def load_data():
     df, matrix, scaler = preprocess()
     df = classify(df)
+    pct_df = build_percentile_matrix(df)
+    df = pd.concat([df, pct_df], axis=1)
     return df, matrix, scaler
 
 df, matrix, scaler = load_data()
@@ -152,6 +155,80 @@ GROUPS = {
 
 def ui_to_internal(col, val):
     return val / 100.0 if col in PCT_COLS else val
+
+
+def make_radar_chart(
+    user_stats: dict,
+    player_row: pd.Series,
+    player_name: str,
+) -> go.Figure:
+    """
+    Radar chart: user target (πορτοκαλί, dashed) vs matched player (μπλε, filled).
+    Άξονες = τα stats που ο χρήστης όρισε, max 8 για readability.
+    Τιμές σε percentile (0–100) vs όλο το dataset.
+    """
+    cols = list(user_stats.keys())[:8]
+    labels = [DISPLAY_LABELS.get(c, c) for c in cols]
+
+    # Percentile του user target vs dataset
+    user_pct = [stat_to_percentile(c, user_stats[c], df) for c in cols]
+
+    # Percentile του matched player (precomputed)
+    player_pct = [float(player_row.get(f"pct_{c}", 50.0)) for c in cols]
+
+    # Κλείνουμε το polygon επαναλαμβάνοντας το πρώτο σημείο
+    u_r = user_pct + [user_pct[0]]
+    p_r = player_pct + [player_pct[0]]
+    theta = labels + [labels[0]]
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatterpolar(
+        r=p_r, theta=theta,
+        fill="toself",
+        fillcolor="rgba(59,130,246,0.20)",
+        line=dict(color="#3b82f6", width=2.5),
+        name=player_name,
+        hovertemplate="%{theta}: %{r:.0f}th pct<extra></extra>",
+    ))
+    fig.add_trace(go.Scatterpolar(
+        r=u_r, theta=theta,
+        fill="toself",
+        fillcolor="rgba(249,115,22,0.15)",
+        line=dict(color="#f97316", width=2, dash="dash"),
+        name="Your target",
+        hovertemplate="%{theta}: %{r:.0f}th pct<extra></extra>",
+    ))
+
+    fig.update_layout(
+        polar=dict(
+            bgcolor="rgba(0,0,0,0)",
+            radialaxis=dict(
+                visible=True, range=[0, 100],
+                tickvals=[25, 50, 75, 100],
+                tickfont=dict(size=9, color="#6b7280"),
+                gridcolor="#374151",
+                linecolor="#374151",
+            ),
+            angularaxis=dict(
+                tickfont=dict(size=10, color="#d1d5db"),
+                gridcolor="#374151",
+                linecolor="#374151",
+            ),
+        ),
+        showlegend=True,
+        legend=dict(
+            orientation="h", yanchor="bottom", y=-0.18,
+            xanchor="center", x=0.5,
+            font=dict(size=11, color="#d1d5db"),
+        ),
+        margin=dict(l=55, r=55, t=30, b=55),
+        height=360,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="#e5e7eb"),
+    )
+    return fig
 
 def internal_to_display(col, val):
     """Decimal internal value → human-readable (multiply pct cols by 100)."""
@@ -325,59 +402,63 @@ if run and user_stats:
 
             st.markdown("")
 
-            # Stat comparison — matching features
-            matching = exp.get("matching", [])[:4]
+            matching  = exp.get("matching", [])[:4]
             diverging = exp.get("diverging", [])[:3]
 
-            if matching:
-                mc, dc = st.columns(2, gap="large")
+            # Layout: radar αριστερά αν ≥3 stats, stat tables δεξιά (ή full-width αν <3)
+            show_radar = len(user_stats) >= 3
+            left_col, right_col = st.columns([1, 1], gap="large") if show_radar else (st.container(), None)
 
-                with mc:
+            with left_col:
+                if show_radar:
+                    fig = make_radar_chart(user_stats, row, row["player_name"])
+                    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+            right_ctx = right_col if show_radar else left_col
+            with right_ctx:
+                if matching:
                     st.markdown("**You asked → Player had**")
-                    rows_data = []
+                    table_html = "<table style='width:100%;font-size:0.85rem;border-collapse:collapse'>"
                     for e in matching:
                         col_name = e["feature"]
                         label    = DISPLAY_LABELS.get(col_name, col_name)
                         user_val = fmt(col_name, z_to_display(col_name, e["user_z"]))
                         plyr_val = fmt(col_name, z_to_display(col_name, e["player_z"]))
+                        u_pct    = stat_to_percentile(col_name, user_stats.get(col_name, scaler.mean_[FEATURE_COLS.index(col_name)]), df)
+                        p_pct    = float(row.get(f"pct_{col_name}", 50.0))
                         diff_abs = abs(e["user_z"] - e["player_z"])
                         css      = "stat-match" if diff_abs < 0.4 else "stat-close" if diff_abs < 1.0 else "stat-far"
-                        rows_data.append((label, user_val, plyr_val, css))
-
-                    table_html = "<table style='width:100%;font-size:0.85rem;border-collapse:collapse'>"
-                    for label, uv, pv, css in rows_data:
                         table_html += (
                             f"<tr>"
-                            f"<td style='color:#9ca3af;padding:3px 8px 3px 0'>{label}</td>"
-                            f"<td style='padding:3px 6px'>{uv}</td>"
+                            f"<td style='color:#9ca3af;padding:3px 8px 3px 0;font-size:0.8rem'>{label}</td>"
+                            f"<td style='padding:3px 4px;font-size:0.82rem'>{user_val} <span style='color:#6b7280;font-size:0.72rem'>({u_pct:.0f}th)</span></td>"
                             f"<td style='color:#6b7280;padding:3px 4px'>→</td>"
-                            f"<td class='{css}' style='padding:3px 0'>{pv}</td>"
+                            f"<td class='{css}' style='padding:3px 0;font-size:0.82rem'>{plyr_val} <span style='color:#6b7280;font-size:0.72rem'>({p_pct:.0f}th)</span></td>"
                             f"</tr>"
                         )
                     table_html += "</table>"
                     st.markdown(table_html, unsafe_allow_html=True)
 
-                with dc:
-                    if diverging:
-                        st.markdown("**Biggest differences**")
-                        div_html = "<table style='width:100%;font-size:0.85rem;border-collapse:collapse'>"
-                        for e in diverging:
-                            col_name = e["feature"]
-                            label    = DISPLAY_LABELS.get(col_name, col_name)
-                            user_val = fmt(col_name, z_to_display(col_name, e["user_z"]))
-                            plyr_val = fmt(col_name, z_to_display(col_name, e["player_z"]))
-                            diff_abs = abs(e["user_z"] - e["player_z"])
-                            css      = "stat-close" if diff_abs < 1.5 else "stat-far"
-                            div_html += (
-                                f"<tr>"
-                                f"<td style='color:#9ca3af;padding:3px 8px 3px 0'>{label}</td>"
-                                f"<td style='padding:3px 6px'>{user_val}</td>"
-                                f"<td style='color:#6b7280;padding:3px 4px'>→</td>"
-                                f"<td class='{css}' style='padding:3px 0'>{plyr_val}</td>"
-                                f"</tr>"
-                            )
-                        div_html += "</table>"
-                        st.markdown(div_html, unsafe_allow_html=True)
+                if diverging:
+                    st.markdown("<div style='margin-top:12px'><b>Biggest differences</b></div>", unsafe_allow_html=True)
+                    div_html = "<table style='width:100%;font-size:0.85rem;border-collapse:collapse'>"
+                    for e in diverging:
+                        col_name = e["feature"]
+                        label    = DISPLAY_LABELS.get(col_name, col_name)
+                        user_val = fmt(col_name, z_to_display(col_name, e["user_z"]))
+                        plyr_val = fmt(col_name, z_to_display(col_name, e["player_z"]))
+                        diff_abs = abs(e["user_z"] - e["player_z"])
+                        css      = "stat-close" if diff_abs < 1.5 else "stat-far"
+                        div_html += (
+                            f"<tr>"
+                            f"<td style='color:#9ca3af;padding:3px 8px 3px 0;font-size:0.8rem'>{label}</td>"
+                            f"<td style='padding:3px 4px;font-size:0.82rem'>{user_val}</td>"
+                            f"<td style='color:#6b7280;padding:3px 4px'>→</td>"
+                            f"<td class='{css}' style='padding:3px 0;font-size:0.82rem'>{plyr_val}</td>"
+                            f"</tr>"
+                        )
+                    div_html += "</table>"
+                    st.markdown(div_html, unsafe_allow_html=True)
 
             # Footer
             h   = row.get("height_cm", "—")

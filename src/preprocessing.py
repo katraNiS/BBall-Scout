@@ -149,6 +149,26 @@ def transform_user_input(user_stats: dict, scaler: StandardScaler) -> np.ndarray
     return scaler.transform(vec.reshape(1, -1))
 
 
+def build_percentile_matrix(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Για κάθε feature column, υπολογίζει το percentile (0–100) κάθε row
+    ως rank / n_rows × 100. Επιστρέφει DataFrame ίδιου shape με το df[FEATURE_COLS].
+    """
+    X = df[FEATURE_COLS].copy()
+    pct = X.rank(pct=True) * 100
+    pct.columns = [f"pct_{c}" for c in FEATURE_COLS]
+    return pct
+
+
+def stat_to_percentile(col: str, value: float, df: pd.DataFrame) -> float:
+    """
+    Μετατρέπει μία τιμή για συγκεκριμένο stat σε percentile vs όλο το dataset.
+    Χρησιμοποιείται για να βρούμε σε ποιο percentile βρίσκεται το user's target.
+    """
+    series = df[col].dropna()
+    return float((series < value).sum() / len(series) * 100)
+
+
 def preprocess(path: Path = DATASET_PATH) -> tuple[pd.DataFrame, np.ndarray, StandardScaler]:
     """
     Κεντρική συνάρτηση. Επιστρέφει (df_clean, feature_matrix, scaler).

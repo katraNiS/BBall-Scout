@@ -57,7 +57,11 @@ def _weighted_similarity(
     """
     diff      = matrix - user_vec          # (n_players, n_features)
     w_diff_sq = (diff ** 2) * weight_arr   # broadcast weights
-    distances = np.sqrt(w_diff_sq.sum(axis=1))
+    # Weighted RMS: διαιρούμε με το άθροισμα βαρών ώστε το distance να μην
+    # αυξάνεται καθώς ορίζονται περισσότερα stats. Χωρίς normalization,
+    # 6 stats με diff=0.5 δίνουν sqrt(6×0.25)≈1.22 αντί sqrt(0.25)=0.5.
+    total_w   = weight_arr.sum() if weight_arr.sum() > 0 else 1.0
+    distances = np.sqrt(w_diff_sq.sum(axis=1) / total_w)
     return 1.0 / (1.0 + distances)
 
 
@@ -252,10 +256,11 @@ def find_similar(
         explanations.append(exp)
 
     # ── 8. Output DataFrame ───────────────────────────────────────────────────
+    pct_cols = [c for c in df_best.columns if c.startswith("pct_")]
     result_cols = [
         "player_name", "season", "compound_archetype",
         "position_group", "height_cm", "weight_lbs",
-    ] + [c for c in ("active_traits",) if c in df_best.columns]
+    ] + [c for c in ("active_traits",) if c in df_best.columns] + pct_cols
 
     out = df_best[result_cols].copy()
     out["similarity"]   = df_best["_similarity"].round(4).values

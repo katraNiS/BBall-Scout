@@ -363,6 +363,52 @@ COMPOUNDS: dict[str, frozenset[str]] = {
         frozenset({"stretch_big", "slasher", "versatile_wing_defender"}),
 }
 
+# Επιτρεπτές position groups ανά compound preset.
+# Αν ένας παίκτης ταιριάζει σε δύο presets ίδιου μεγέθους, κερδίζει αυτό
+# που ταιριάζει τη θέση του — π.χ. Porzingis (F-C) δεν πρέπει να παίρνει
+# "Slashing Guard" έστω κι αν έχει active slasher + on_ball_creator.
+PRESET_POSITIONS: dict[str, list[str]] = {
+    # Guards
+    "Floor General":             ["G", "G-F"],
+    "Scoring Lead Guard":        ["G", "G-F"],
+    "Two-Way Lead Guard":        ["G", "G-F"],
+    "Pure Point Guard":          ["G", "G-F"],
+    "Bucket-Getter":             ["G", "G-F"],
+    "Instant Offense":           ["G", "G-F"],
+    "Slashing Guard":            ["G", "G-F"],
+    "3-and-D Guard":             ["G", "G-F"],
+    "Defensive Playmaker":       ["G", "G-F"],
+    "Pure Shooter":              ["G", "G-F"],
+    "Sharpshooter":              ["G", "G-F", "F"],
+    "Two-Way Sharpshooter":      ["G", "G-F", "F"],
+    # Wings
+    "Two-Way Wing":              ["G-F", "F"],
+    "Two-Way Slashing Star":     ["G-F", "F"],
+    "Wing Scorer":               ["G-F", "F"],
+    "3-and-D Wing":              ["G-F", "F"],
+    "Point Forward":             ["G-F", "F", "F-C"],
+    "Connector / Glue Wing":     ["G-F", "F"],
+    "Athletic Finisher Wing":    ["G-F", "F", "F-C"],
+    "Stretch Four / Combo Forward": ["F", "F-C"],
+    "Modern Two-Way Forward":    ["F", "F-C"],
+    "All-Around Forward":        ["F", "F-C"],
+    # Bigs
+    "Point Center":              ["F", "F-C", "C"],
+    "Two-Way Scoring Big":       ["F", "F-C", "C"],
+    "Stretch Big":               ["F", "F-C", "C"],
+    "Shooting Stretch Big":      ["F", "F-C", "C"],
+    "Stretch Rim Protector":     ["F-C", "C"],
+    "Rim-Running Anchor":        ["F-C", "C"],
+    "Pure Defensive Center":     ["F-C", "C"],
+    "Playmaking Rim Protector":  ["F", "F-C", "C"],
+    "Versatile Swiss-Army Big":  ["F", "F-C", "C"],
+    "Defensive Playmaking Big":  ["F", "F-C", "C"],
+    "Energy Big":                ["F", "F-C", "C"],
+    "Throwback Post Hub":        ["F", "F-C", "C"],
+    "Glass Cleaner":             ["F-C", "C"],
+    "Putback Finisher":          ["F", "F-C", "C"],
+}
+
 
 # ─── Naming helpers ───────────────────────────────────────────────────────────
 
@@ -494,12 +540,19 @@ def _label_archetype(row: pd.Series, trait_names: list[str]) -> str:
     if not active:
         return "Unclassified"
 
-    # Πιο συγκεκριμένο preset (περισσότερα traits) που είναι υποσύνολο των active
-    best_name, best_count = None, 0
+    # Πιο συγκεκριμένο preset που είναι υποσύνολο των active.
+    # Score = (pos_ok, trait_count): position-compatibility πρωτεύει,
+    # μετά ο αριθμός traits. Dict ordering ως tertiary tiebreaker.
+    pos = row.get("position_group", "Unknown")
+    best_name, best_score = None, (-1, 0)
     for name, preset in COMPOUNDS.items():
-        if preset <= active and len(preset) > best_count:
-            best_name  = name
-            best_count = len(preset)
+        if preset <= active:
+            allowed = PRESET_POSITIONS.get(name)
+            pos_ok  = 1 if (allowed is None or pos in allowed) else 0
+            score   = (pos_ok, len(preset))
+            if score > best_score:
+                best_name  = name
+                best_score = score
 
     if best_name:
         return best_name
