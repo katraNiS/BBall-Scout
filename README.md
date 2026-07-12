@@ -1,4 +1,4 @@
-# BBall Scout
+# ProspectMatch
 
 Ένα **scouting εργαλείο** που βρίσκει πραγματικούς παίκτες με βάση ένα custom στατιστικό/χαρακτηριστικό προφίλ — όχι quiz τύπου "ποιος παίκτης είμαι", αλλά πραγματικό εργαλείο ανάλυσης για scouting και roster building.
 
@@ -35,7 +35,7 @@ nba_api  →  pipeline/fetch_nba_data.py  →  data/nba_stats_full.csv
 
 **Similarity metric:** weighted L2 distance στο z-score space, masked μόνο στα stats που ο χρήστης όρισε. `1/(1+distance)` → score (0, 1].
 
-Πλήρεις ορισμοί traits/compounds στο [`archetype_spec.md`](./archetype_spec.md).
+Πλήρεις ορισμοί traits/compounds στο [`ARCHETYPES.md`](./ARCHETYPES.md).
 
 ---
 
@@ -58,7 +58,7 @@ nba_api  →  pipeline/fetch_nba_data.py  →  data/nba_stats_full.csv
 
 - [x] Ορισμός ιδέας & scope (NBA-only πρώτα)
 - [x] API exploration — ξέρουμε ακριβώς τι fields δίνει το `nba_api`
-- [x] Archetype design: 18 primitives + 29 compound presets (`archetype_spec.md`)
+- [x] Archetype design: 18 primitives + 29 compound presets (`ARCHETYPES.md`)
 - [x] Data pipeline — box/advanced + scoring (PCT_PTS_2PT_MR κ.α.) + hustle (deflections κ.α.)
 - [x] `src/preprocessing.py` — normalization, tiered MPG filter, z-scores
 - [x] `src/archetypes.py` — trait signals + compound presets + classifier
@@ -78,10 +78,10 @@ nba_api  →  pipeline/fetch_nba_data.py  →  data/nba_stats_full.csv
 ## Δομή αρχείων
 
 ```
-BBall-Scout/
+ProspectMatch/
 ├── README.md                  ← αυτό το αρχείο
 ├── CLAUDE.md                  ← context/οδηγίες για το Claude Code
-├── archetype_spec.md          ← πλήρες spec των archetypes (traits + compounds)
+├── ARCHETYPES.md              ← πλήρες spec των archetypes (traits + compounds)
 ├── data/
 │   └── nba_stats_full.csv     ← merged dataset (δεν είναι στο git)
 ├── pipeline/

@@ -1,0 +1,9 @@
+# Data (large, regenerated locally via pipeline/fetch_nba_data.py — see CLAUDE.md)
+data/
+
+# Python
+__pycache__/
+*.pyc
+
+# Editor / run-tool temp files
+tempCodeRunnerFile.py
