@@ -25,7 +25,7 @@ def get_min_mpg(season: str) -> float:
     """
     Tiered MPG threshold ανά εποχή.
 
-    1996–2013 (pre-tracking era): ≥20 MPG — κρατάμε μόνο meaningful contributors.
+    1996–2012 (pre-tracking era): ≥20 MPG — κρατάμε μόνο meaningful contributors.
       Λόγος: λείπουν hustle/tracking stats → role players με 5 λεπτά δεν
       προσφέρουν ουσιαστικό signal και μολύνουν το similarity space.
 

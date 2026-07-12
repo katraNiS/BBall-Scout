@@ -211,7 +211,10 @@ TRAITS: dict[str, Trait] = {
 
     "rim_protector": Trait(
         name="rim_protector",
-        positions=["F-C", "C"],
+        # "F" προστέθηκε: shot-blocking forwards (Draymond, AD-as-PF) πρέπει να είναι
+        # eligible — το blk signal (pos_rel=False) ήδη ζητά υψηλά blocks, οπότε
+        # απλοί forwards χωρίς rim protection δεν ανάβουν το trait.
+        positions=["F", "F-C", "C"],
         signals=[
             Signal("blk",        weight=3.0),
             Signal("def_rating", weight=-1.5),

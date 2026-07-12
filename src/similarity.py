@@ -2,7 +2,8 @@
 Similarity engine: βρίσκει τους πιο όμοιους παίκτες για ένα user-defined profile.
 
 Βασική λογική:
-  1. Weighted cosine similarity στο normalized feature space
+  1. Weighted RMS (L2) distance στο normalized feature space, masked στα stats
+     που όρισε ο χρήστης
   2. Archetype boost για παίκτες με shared active traits
   3. Explanation ανά match (τι έφερε κοντά, τι διαφέρει)
 
@@ -94,6 +95,7 @@ def explain_match(
     player_vec_raw: np.ndarray,
     weights: dict | None = None,
     top_n: int = 4,
+    specified_mask: np.ndarray | None = None,
 ) -> dict:
     """
     Εξηγεί γιατί ένας παίκτης ταιριάζει στο user profile.
@@ -101,6 +103,12 @@ def explain_match(
     Μετράει weighted absolute difference ανά feature:
       - Μικρή διαφορά → το feature "ταίριαξε" (contributing)
       - Μεγάλη διαφορά → το feature "διαφέρει" (diverging)
+
+    Args:
+      specified_mask — boolean array (len = FEATURE_COLS) που δείχνει ποια features
+        όρισε ρητά ο χρήστης. Ίδιο mask με αυτό του similarity, ώστε η εξήγηση να
+        είναι συνεπής με το score. Αν είναι None, fallback σε z≠0 heuristic
+        (πρόβλημα: stat που ο χρήστης όρισε ΚΟΝΤΑ στο league mean θα χανόταν).
 
     Επιστρέφει:
       matching   — [(feature, user_val, player_val), ...] top ομοιότητες
@@ -111,9 +119,13 @@ def explain_match(
     # Weighted absolute difference ανά feature (στο z-score space)
     diffs = np.abs(user_vec_raw - player_vec_raw) * w_arr
 
-    # Φιλτράρουμε μόνο features που ο χρήστης ΔΕΝ άφησε στο mean (z≠0 για user)
-    # Αν o χρήστης δεν όρισε ένα stat, δεν έχει νόημα να το εξηγήσουμε
-    user_defined = np.abs(user_vec_raw) > 0.05  # z=0 → population mean → skip
+    # Κρατάμε μόνο τα features που όρισε ο χρήστης. Χρησιμοποιούμε το ρητό mask
+    # όταν δίνεται (συνεπές με τον υπολογισμό του similarity)· αλλιώς fallback
+    # στο z≠0 heuristic (ένα stat ίσο με το league mean δίνει z≈0 και θα χανόταν).
+    if specified_mask is not None:
+        user_defined = np.asarray(specified_mask, dtype=bool)
+    else:
+        user_defined = np.abs(user_vec_raw) > 0.05  # z=0 → population mean → skip
 
     # Matching: μικρές διαφορές σε user-defined features
     # Unspecified → inf ώστε να βγαίνουν τελευταία
@@ -160,7 +172,9 @@ def find_similar(
     Βρίσκει τους top_n πιο όμοιους παίκτες.
 
     Args:
-        user_stats:    {"fg3_pct": 0.38, "ast_pct": 25.0, ...}
+        user_stats:    {"fg3_pct": 0.38, "ast_pct": 0.26, ...}
+                       ΠΡΟΣΟΧΗ: τα pct stats είναι fractions (0.0–1.0), όχι percentages
+                       (ast_pct=0.26, όχι 26.0 — αλλιώς z-score ~285). Βλ. CLAUDE.md.
                        Stats που δεν ορίζονται → population mean (z=0, neutral)
         df_clean:      DataFrame από preprocessing.load_and_clean()
         feature_matrix: z-scored array από preprocessing.build_feature_matrix()
@@ -185,11 +199,10 @@ def find_similar(
     user_vec = scaler.transform(user_raw.reshape(1, -1)).flatten()
 
     # Mask των features που ο χρήστης όρισε ρητά.
-    # Cosine similarity υπολογίζεται ΜΟΝΟ σε αυτές τις διαστάσεις.
-    # Αιτία: cosine κανονικοποιεί τον |player| vector — αν ένας παίκτης έχει
-    # extreme τιμές σε unspecified features (π.χ. πολλά deflections ενώ ο χρήστης
-    # δεν ρώτησε για άμυνα), ο μεγάλος |player| τον τιμωρεί άδικα.
-    # Masked cosine: "βρες παίκτες που ταιριάζουν σε ΑΥΤΑ τα stats."
+    # Το distance υπολογίζεται ΜΟΝΟ σε αυτές τις διαστάσεις — τα unspecified stats
+    # δεν επηρεάζουν το score. Έτσι ένας παίκτης με extreme τιμές σε features που
+    # ο χρήστης δεν ρώτησε (π.χ. πολλά deflections ενώ δεν ζητήθηκε άμυνα) δεν
+    # τιμωρείται: "βρες παίκτες που ταιριάζουν σε ΑΥΤΑ τα stats."
     specified_mask = np.array([col in user_stats for col in FEATURE_COLS])
 
     # ── 2. Season range filter ────────────────────────────────────────────────
@@ -248,11 +261,14 @@ def find_similar(
     df_best = df_best.sort_values("_final", ascending=False).head(top_n)
 
     # ── 7. Explanations ───────────────────────────────────────────────────────
+    # df_scored/df_best κληρονομούν το RangeIndex του df_filtered (reset στο βήμα 2),
+    # οπότε το index είναι θέση στο mat_filtered — direct lookup, χωρίς get_loc.
     explanations = []
     for idx in df_best.index:
-        orig_idx      = df_filtered.index.get_loc(idx) if idx in df_filtered.index else None
-        player_vec    = mat_filtered[df_filtered.index.get_loc(idx)]
-        exp           = explain_match(user_vec, player_vec, weights=weights)
+        player_vec = mat_filtered[idx]
+        exp        = explain_match(
+            user_vec, player_vec, weights=weights, specified_mask=specified_mask
+        )
         explanations.append(exp)
 
     # ── 8. Output DataFrame ───────────────────────────────────────────────────
