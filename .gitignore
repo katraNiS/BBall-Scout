@@ -4,6 +4,22 @@ data/
 # Python
 __pycache__/
 *.pyc
+.venv/
+venv/
+
+# Node / frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+*.tsbuildinfo
+
+# Electron build output
+release/
+backend-dist/
 
 # Editor / run-tool temp files
 tempCodeRunnerFile.py
+
+# Local env overrides
+.env
+.env.local
