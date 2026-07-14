@@ -1,0 +1,70 @@
+{
+  "name": "prospectmatch",
+  "version": "1.0.0",
+  "description": "NBA scouting tool — Electron + FastAPI + React desktop app",
+  "author": "ProspectMatch",
+  "license": "MIT",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "postinstall": "npm --prefix frontend install",
+    "predev": "node scripts/preflight-ports.cjs",
+    "dev:backend": "cd backend && python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:electron": "wait-on http-get://127.0.0.1:5173 http-get://127.0.0.1:8000/health && cross-env ELECTRON_START_URL=http://127.0.0.1:5173 electron .",
+    "dev": "concurrently -k -n backend,frontend,electron -c blue,green,magenta \"npm:dev:backend\" \"npm:dev:frontend\" \"npm:dev:electron\"",
+    "build:frontend": "npm --prefix frontend run build",
+    "dist": "npm run build:frontend && electron-builder"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "electron": "^43.1.0",
+    "electron-builder": "^26.15.3",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "app.prospectmatch",
+    "productName": "ProspectMatch",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*",
+      "frontend/dist/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "backend",
+        "to": "backend",
+        "filter": [
+          "**/*.py",
+          "requirements.txt",
+          "!**/__pycache__/**"
+        ]
+      },
+      {
+        "from": "src",
+        "to": "src",
+        "filter": [
+          "**/*.py",
+          "!**/__pycache__/**"
+        ]
+      },
+      {
+        "from": "data/nba_stats_full.csv",
+        "to": "data/nba_stats_full.csv"
+      }
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.sports"
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Sports"
+    }
+  }
+}
