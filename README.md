@@ -68,7 +68,8 @@ nba_api  →  pipeline/fetch_nba_data.py  →  data/nba_stats_full.csv
 - [x] Position-aware preset matching (`PRESET_POSITIONS`) — διορθώνει misclassification (π.χ. Porzingis → "Slashing Guard")
 - [x] Scale-invariant similarity — weighted RMS αντί raw sum, αποφεύγει compression με πολλά stats
 - [x] Radar chart (percentile 0–100) — StatsBomb-style, player vs user target, `plotly`
-- [ ] Classifier threshold tuning (precision/recall ανά trait)
+- [x] Validation harness (`validation/`) — 72 labeled παίκτες, per-trait precision/recall/F1, threshold sweep → `REPORT.md`
+- [ ] Classifier tuning (structural eligibility bugs → trait over-firing weights → eval hardening)
 - [ ] UI: φίλτρο ανά position, export αποτελεσμάτων σε CSV
 - [ ] FastAPI backend (αντικατάσταση scripts)
 - [ ] Multi-league support (NCAA, EuroLeague κ.α.)

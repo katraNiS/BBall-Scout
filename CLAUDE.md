@@ -65,9 +65,17 @@ ProspectMatch/
 │   ├── preprocessing.py       ← load/clean/normalize, FEATURE_COLS, preprocess() [DONE]
 │   ├── archetypes.py          ← 18 traits + signals + 29 compound presets + classify() [DONE]
 │   └── similarity.py          ← find_similar(), explain_match() [DONE]
+├── validation/                ← classifier validation harness [WIP]
+│   ├── labels.py              ← 72 ground-truth παίκτες → canonical archetype (από ARCHETYPES.md)
+│   ├── matching.py            ← accent/punct-tolerant name → row resolver
+│   ├── evaluate.py            ← per-trait P/R/F1, macro-F1, archetype top-1, structural misses
+│   ├── tune_threshold.py      ← score once → sweep threshold → REPORT.md
+│   └── REPORT.md              ← generated metrics snapshot
 └── app/
     └── streamlit_app.py       ← Streamlit UI [DONE]
 ```
+
+Τρέξε το harness: `python validation/tune_threshold.py` (measurement-only, δεν αλλάζει το src/).
 
 ---
 
@@ -211,7 +219,9 @@ Cosine κανονικοποιεί τον |player| vector — τιμωρεί αδ
 - [x] `src/preprocessing.py` — percentile matrix (`build_percentile_matrix`, `stat_to_percentile`)
 - [x] `app/streamlit_app.py` — Streamlit UI (stat builder + result cards + radar chart)
 - [x] Validation: 20 παίκτες (stars + role players)
-- [ ] Classifier threshold tuning (precision/recall ανά trait)
+- [x] `validation/` harness — 72 labeled παίκτες, per-trait P/R/F1, threshold sweep, REPORT.md
+- [ ] Classifier tuning: (1) structural eligibility bugs, (2) trait over-firing weights, (3) eval hardening
+      — threshold sweep έδειξε ότι το global threshold ΔΕΝ είναι το lever (macro-F1 ~flat), κράτα 0.6
 - [ ] UI: φίλτρο ανά position, export αποτελεσμάτων σε CSV
 - [ ] FastAPI backend (αντί scripts)
 - [ ] Multi-league support
