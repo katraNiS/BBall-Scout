@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import sys
 import unicodedata
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -61,7 +62,6 @@ class Engine:
         self.df: pd.DataFrame | None = None
         self.matrix: np.ndarray | None = None
         self.scaler = None
-        self._ready = False
 
     # ── Startup ────────────────────────────────────────────────────────────────
     def load(self) -> None:
@@ -77,11 +77,10 @@ class Engine:
         self.df = df
         self.matrix = matrix
         self.scaler = scaler
-        self._ready = True
 
     @property
     def ready(self) -> bool:
-        return self._ready
+        return self.df is not None
 
     @property
     def n_players(self) -> int:
@@ -98,6 +97,11 @@ class Engine:
         raw = float(z) * self.scaler.scale_[i] + self.scaler.mean_[i]
         return to_display(col, raw)
 
+    # Ίδιο (col, value) ζητιέται επανειλημμένα ανά request — μέχρι top_n × 7 φορές
+    # στο _explain_entries, ενώ η τιμή είναι πάντα η ίδια (user target ή population
+    # mean). Το engine είναι singleton με immutable df μετά το load(), οπότε το
+    # caching στη μέθοδο ζει ασφαλώς όσο ζει το process.
+    @lru_cache(maxsize=4096)
     def _user_percentile(self, col: str, internal_val: float) -> float:
         return stat_to_percentile(col, internal_val, self.df)
 
