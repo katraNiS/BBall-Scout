@@ -12,6 +12,13 @@
 
 Ο χρήστης μπορεί επίσης να επιλέξει **traits** (π.χ. `lead_playmaker`, `spot_up_shooter`) για να δώσει μικρό boost σε παίκτες με αυτό το profile, χωρίς να αποκλείει κανέναν.
 
+Πέρα από το similarity search, ο χρήστης μπορεί να κρατά τους δικούς του
+**prospects** — παίκτες που παρακολουθεί χειροκίνητα (physicals, ομάδα, σημειώσεις) —
+και να τους συνδέει απευθείας με NBA comps: prefill του search από τα physicals ενός
+prospect, και αποθήκευση των αποτελεσμάτων πάνω στην εγγραφή του. Ένα home screen
+συγκεντρώνει την κατάσταση του dataset, τους πρόσφατους prospects και το ιστορικό
+αναζητήσεων.
+
 ---
 
 ## Πώς δουλεύει (high-level)
@@ -87,9 +94,16 @@ backend τον _wrap-άρει_, δεν τον ξαναγράφει.
 - [x] **FastAPI backend** (`backend/`) — 6 endpoints (`/similar`, `/classify`, `/stats`, `/archetypes`, …), wrap-άρει το `src/` αμετάβλητο
 - [x] **React frontend** (`frontend/`) — stat builder + result cards + Recharts radar (TypeScript)
 - [x] **Electron desktop app** (`electron/`) — `npm run dev` (backend+frontend+electron μαζί), `npm run dist`
-- [ ] Classifier tuning (structural eligibility bugs → trait over-firing weights → eval hardening)
-- [ ] UI: φίλτρο ανά position, export αποτελεσμάτων σε CSV
-- [ ] Sync `ARCHETYPES.md` (29) με τον κώδικα (36 presets)
+- [x] **Routing + πολλαπλά screens** — `react-router-dom` (`HashRouter`), Home / Search / Prospects screens
+- [x] **Prospect tracking** — CRUD για χειρόγραφους prospects (JSON store, `PROSPECTMATCH_DATA_DIR`)
+- [x] **Prospect ↔ NBA comps** — prefill search από prospect physicals, αποθήκευση/διαγραφή αποτελεσμάτων
+- [x] **Home screen + search history** — dataset status, πρόσφατοι prospects, τελευταίες αναζητήσεις (re-run με ένα click)
+- [x] **UI polish** — φίλτρο ανά position + export αποτελεσμάτων σε CSV (client-side, στο search screen)
+- [x] **`ARCHETYPES.md` sync** — 29 → 36 presets, real players επιβεβαιωμένα πάνω στο dataset
+- [x] **Classifier eval hardening** — validation ground truth (`validation/labels.py`) διορθώθηκε ώστε να μην
+      τιμωρεί legit δευτερεύοντα traits πολυδιάστατων players· macro-F1 0.494 → 0.601 (+22%), χωρίς αλλαγές
+      στο `src/`
+- [ ] Classifier tuning: archetype top-1 accuracy (ξεχωριστό, πιο δύσκολο πρόβλημα — βλ. `CLAUDE.md`)
 - [ ] Self-contained bundle (PyInstaller backend exe)
 - [ ] Multi-league support (NCAA, EuroLeague κ.α.)
 
@@ -113,7 +127,9 @@ ProspectMatch/
 │   ├── archetypes.py          ← trait signals + presets + classifier  [DONE]
 │   └── similarity.py          ← matching engine  [DONE]
 ├── backend/                   ← FastAPI API (wrap-άρει το src/)  [DONE]
+│   └── store.py               ← JSON repo: prospects.json + searches.json (atomic write)  [DONE]
 ├── frontend/                  ← React + TS + Vite + Recharts  [DONE]
+│   └── src/screens/           ← Home, Search, Prospects, ProspectForm (react-router HashRouter)  [DONE]
 ├── electron/                  ← desktop shell (spawn backend + load UI)  [DONE]
 └── app/
     └── streamlit_app.py       ← Streamlit UI (legacy, λειτουργικό)  [DONE]
@@ -141,6 +157,9 @@ npm run dev            # backend + Vite + Electron μαζί (concurrently)
 ```bash
 cd backend && uvicorn main:app --reload      # → http://127.0.0.1:8000/docs
 ```
+
+> Prospects + search history γράφονται σε `./.prospectmatch-data/` (dev) ή στο path
+> του `PROSPECTMATCH_DATA_DIR` env var (packaged app) — βλ. `DEVELOPMENT.md`.
 
 **Ή το legacy Streamlit UI:**
 ```bash

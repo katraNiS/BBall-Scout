@@ -23,3 +23,6 @@ tempCodeRunnerFile.py
 # Local env overrides
 .env
 .env.local
+
+# Prospect store (user data — resolved via PROSPECTMATCH_DATA_DIR, dev fallback here)
+.prospectmatch-data/

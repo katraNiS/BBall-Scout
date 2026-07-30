@@ -52,7 +52,12 @@ function startBackend() {
   }
 
   console.log(`[electron] starting backend: ${cmd} ${args.join(" ")}`);
-  backendProc = spawn(cmd, args, { cwd, env: process.env });
+  // userData είναι πάντα εγγράψιμο (σε αντίθεση με το install dir, π.χ. Program
+  // Files σε Windows) και επιβιώνει τα app updates.
+  backendProc = spawn(cmd, args, {
+    cwd,
+    env: { ...process.env, PROSPECTMATCH_DATA_DIR: app.getPath("userData") },
+  });
   backendProc.stdout.on("data", (d) => process.stdout.write(`[backend] ${d}`));
   backendProc.stderr.on("data", (d) => process.stderr.write(`[backend] ${d}`));
   backendProc.on("exit", (code) => console.log(`[electron] backend exited: ${code}`));

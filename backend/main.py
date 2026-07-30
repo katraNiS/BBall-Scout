@@ -25,8 +25,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fastapi import FastAPI, HTTPException, Query  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
+import store  # noqa: E402
 from engine import engine  # noqa: E402
-from schemas import SimilarRequest, ClassifyRequest  # noqa: E402
+from schemas import (  # noqa: E402
+    SimilarRequest,
+    ClassifyRequest,
+    ProspectCreate,
+    ProspectUpdate,
+    CompCreate,
+)
+from preprocessing import FEATURE_COLS  # noqa: E402 (src/ ήδη στο sys.path από το engine import)
+
+_VALID_STAT_KEYS = set(FEATURE_COLS)
 
 
 @asynccontextmanager
@@ -70,8 +80,7 @@ def _require_ready() -> None:
 
 # ── Health / metadata ──────────────────────────────────────────────────────────
 
-# GET + HEAD: το `wait-on` (dev orchestration) κάνει HEAD· χωρίς αυτό → 405 → hang.
-@app.api_route("/health", methods=["GET", "HEAD"])
+@app.get("/health")
 def health() -> dict:
     return {
         "status": "ok" if engine.ready else "loading",
@@ -108,17 +117,43 @@ def post_similar(req: SimilarRequest) -> dict:
     if not req.stats:
         raise HTTPException(status_code=400, detail="Όρισε τουλάχιστον ένα stat.")
 
-    unknown = [k for k in req.stats if k not in _valid_keys()]
+    unknown = [k for k in req.stats if k not in _VALID_STAT_KEYS]
     if unknown:
         raise HTTPException(status_code=400, detail=f"Άγνωστα stat keys: {unknown}")
 
-    return engine.similar(
+    result = engine.similar(
         stats=req.stats,
         weights=req.weights,
         top_n=req.top_n,
         active_traits=req.active_traits,
         season_range=req.season_range,
     )
+
+    # Καταγραφή στο search history για το home screen (Phase 4) — ΠΟΤΕ δεν πρέπει
+    # μια αποτυχία εδώ να χαλάσει το ίδιο το search, οπότε swallow + log only.
+    try:
+        store.add_search({
+            "query": {
+                "stats": req.stats,
+                "weights": req.weights,
+                "season_range": req.season_range,
+                "active_traits": req.active_traits,
+            },
+            "top_n": req.top_n,
+            "top_results": [
+                {
+                    "player_name": r["player_name"],
+                    "season": r["season"],
+                    "similarity": r["similarity"],
+                }
+                for r in result.get("results", [])[:3]
+            ],
+            "prospect_id": req.prospect_id,
+        })
+    except Exception as e:  # noqa: BLE001
+        print(f"[ProspectMatch] Αποτυχία καταγραφής search history: {e}", flush=True)
+
+    return result
 
 
 @app.post("/classify")
@@ -135,9 +170,74 @@ def post_classify(req: ClassifyRequest) -> dict:
     return result
 
 
-def _valid_keys() -> set[str]:
-    from preprocessing import FEATURE_COLS
-    return set(FEATURE_COLS)
+# ── Prospects ───────────────────────────────────────────────────────────────────
+# Ανεξάρτητο από το NBA dataset — δεν καλούν _require_ready(), ώστε το roster να
+# μένει χρηστικό ενώ το dataset ακόμα φορτώνεται. Ονομάζονται /prospects (όχι
+# /players) για να μη συγκρούονται με το υπάρχον GET /players (autocomplete).
+
+
+@app.get("/prospects")
+def list_prospects() -> list[dict]:
+    return store.list_all()
+
+
+@app.get("/prospects/{prospect_id}")
+def get_prospect(prospect_id: str) -> dict:
+    record = store.get(prospect_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Prospect δεν βρέθηκε.")
+    return record
+
+
+@app.post("/prospects", status_code=201)
+def create_prospect(req: ProspectCreate) -> dict:
+    return store.create(req.model_dump(mode="json"))
+
+
+@app.patch("/prospects/{prospect_id}")
+def patch_prospect(prospect_id: str, req: ProspectUpdate) -> dict:
+    patch = req.model_dump(mode="json", exclude_unset=True)
+    record = store.update(prospect_id, patch)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Prospect δεν βρέθηκε.")
+    return record
+
+
+@app.delete("/prospects/{prospect_id}", status_code=204)
+def delete_prospect(prospect_id: str) -> None:
+    if not store.delete(prospect_id):
+        raise HTTPException(status_code=404, detail="Prospect δεν βρέθηκε.")
+
+
+# ── Prospect comps (αποθηκευμένα σύνολα NBA comps) ───────────────────────────────
+
+
+@app.post("/prospects/{prospect_id}/comps", status_code=201)
+def add_prospect_comp(prospect_id: str, req: CompCreate) -> dict:
+    record = store.add_comp(prospect_id, req.model_dump(mode="json"))
+    if record is None:
+        raise HTTPException(status_code=404, detail="Prospect δεν βρέθηκε.")
+    return record
+
+
+@app.delete("/prospects/{prospect_id}/comps/{comp_id}", status_code=204)
+def delete_prospect_comp(prospect_id: str, comp_id: str) -> None:
+    if not store.delete_comp(prospect_id, comp_id):
+        raise HTTPException(status_code=404, detail="Prospect ή comp δεν βρέθηκε.")
+
+
+# ── Search history (για το home screen) ──────────────────────────────────────────
+# Ίδια λογική με τα /prospects — ανεξάρτητο από το dataset, όχι _require_ready().
+
+
+@app.get("/searches")
+def list_searches() -> list[dict]:
+    return store.list_searches()
+
+
+@app.delete("/searches", status_code=204)
+def clear_searches() -> None:
+    store.clear_searches()
 
 
 if __name__ == "__main__":

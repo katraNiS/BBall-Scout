@@ -33,10 +33,34 @@ body {
   line-height: 1.45;
 }
 
+/* ── Top nav ─────────────────────────────────────────────── */
+.top-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 48px;
+  padding: 0 18px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.top-nav-brand { font-weight: 700; margin-right: 18px; color: var(--text); }
+.top-nav a {
+  color: var(--text-dim);
+  text-decoration: none;
+  font-size: 0.85rem;
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+.top-nav a:hover { color: var(--text); background: var(--bg-card-2); }
+.top-nav a.active { color: var(--accent); background: var(--bg-card-2); font-weight: 600; }
+
 .layout {
   display: grid;
   grid-template-columns: 340px 1fr;
-  min-height: 100vh;
+  min-height: calc(100vh - 48px);
 }
 
 /* ── Sidebar ─────────────────────────────────────────────── */
@@ -45,8 +69,8 @@ body {
   border-right: 1px solid var(--border);
   padding: 20px 18px;
   position: sticky;
-  top: 0;
-  height: 100vh;
+  top: 48px;
+  height: calc(100vh - 48px);
   overflow-y: auto;
 }
 .sidebar h1 { font-size: 1.3rem; margin: 0 0 2px; }
@@ -120,7 +144,10 @@ select[multiple] option { padding: 3px 6px; border-radius: 4px; }
 .summary-pills .wt { color: var(--amber); }
 
 /* ── Result cards ────────────────────────────────────────── */
-.results-head { font-size: 1.2rem; margin: 8px 0 12px; }
+.results-toolbar { display: flex; align-items: center; gap: 16px; margin: 8px 0 12px; flex-wrap: wrap; }
+.results-head { font-size: 1.2rem; margin: 0; }
+.results-head-filtered { font-size: 0.8rem; color: var(--text-dim2); font-weight: 400; }
+.export-csv-btn { margin-left: auto; }
 .card {
   background: var(--bg-card); border: 1px solid var(--border);
   border-radius: 10px; padding: 16px 18px; margin-bottom: 12px;
@@ -172,3 +199,137 @@ select[multiple] option { padding: 3px 6px; border-radius: 4px; }
 .status-dot.ok { background: var(--green); }
 .status-dot.down { background: var(--red); }
 .status-line { font-size: 0.72rem; color: var(--text-dim2); margin-top: 10px; }
+
+/* ── Prospects: list ─────────────────────────────────────── */
+.prospects-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.prospects-add-btn { width: auto; padding: 8px 16px; text-decoration: none; display: inline-block; }
+.sort-label { font-size: 0.82rem; color: var(--text-dim); }
+.sort-label select {
+  background: var(--bg-card-2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 4px 8px; margin-left: 4px; font-size: 0.82rem;
+}
+
+.prospect-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+.prospect-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+.prospect-card-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
+.prospect-name { font-weight: 700; font-size: 1.02rem; color: var(--text); text-decoration: none; }
+.prospect-name:hover { text-decoration: underline; }
+.prospect-card-meta { font-size: 0.82rem; color: var(--text-dim); margin-bottom: 2px; }
+.prospect-card-nat { font-size: 0.78rem; color: var(--text-dim2); margin-top: 2px; }
+.prospect-card-actions { display: flex; gap: 14px; margin-top: 10px; font-size: 0.8rem; }
+.prospect-card-actions a { color: var(--accent); text-decoration: none; }
+.prospect-card-actions a:hover { text-decoration: underline; }
+
+.link-btn {
+  background: none; border: none; padding: 0; color: var(--accent);
+  cursor: pointer; font-size: 0.8rem; text-decoration: none; font-family: inherit;
+}
+.link-btn:hover { text-decoration: underline; }
+.link-btn.danger { color: var(--red); }
+.link-btn:disabled { color: var(--text-dim2); cursor: not-allowed; text-decoration: none; }
+
+/* ── Prospects: empty / not-found states ─────────────────── */
+.empty-state {
+  text-align: center; padding: 60px 20px; border: 1px dashed var(--border);
+  border-radius: 12px; background: var(--bg-card); max-width: 480px; margin: 40px auto;
+}
+.empty-state-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 8px; }
+.empty-state-body { color: var(--text-dim); font-size: 0.88rem; margin-bottom: 18px; }
+.empty-state-cta { display: inline-block; width: auto; padding: 10px 20px; text-decoration: none; }
+
+.not-found-card { text-align: center; padding: 60px 20px; max-width: 480px; margin: 40px auto; }
+
+/* ── Prospects: form ──────────────────────────────────────── */
+.prospect-form { max-width: 640px; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 14px; }
+.form-row label, .form-row-full {
+  display: flex; flex-direction: column; font-size: 0.82rem; color: var(--text-dim); gap: 4px;
+}
+.form-row-full { margin-bottom: 14px; }
+.prospect-form input[type="text"],
+.prospect-form input[type="number"],
+.prospect-form input[type="date"],
+.prospect-form select,
+.prospect-form textarea {
+  background: var(--bg-card-2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 7px 10px; font-size: 0.88rem; font-family: inherit;
+}
+.prospect-form input:disabled { opacity: 0.5; }
+.field-error { color: var(--red); font-size: 0.74rem; }
+.field-hint { color: var(--text-dim2); font-size: 0.74rem; }
+.form-actions { display: flex; align-items: center; gap: 18px; margin-top: 8px; }
+.form-actions .run-btn { width: auto; padding: 10px 22px; }
+
+.find-comps-btn { width: auto; padding: 8px 18px; margin: 4px 0 8px; background: var(--accent-2); }
+
+/* ── Search: prospect prefill banner + save comps (Phase 3) ─────────────── */
+.prefill-banner {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--bg-card-2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 14px; margin-bottom: 14px; font-size: 0.84rem; color: var(--text-dim);
+}
+.prefill-banner a { color: var(--accent); }
+.prefill-banner .link-btn { margin-left: auto; }
+
+.save-comps-row { display: flex; align-items: center; gap: 12px; margin: 4px 0 16px; }
+.save-comps-btn { width: auto; padding: 9px 18px; background: var(--accent-2); }
+.save-comps-msg { font-size: 0.82rem; color: var(--text-dim); }
+
+/* ── Prospects: saved comps (Phase 3) ────────────────────────────────────── */
+.comps-section h3 { font-size: 1.05rem; margin: 0 0 12px; }
+.state-msg.small { padding: 14px 0; text-align: left; font-size: 0.85rem; }
+.comp-card {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px 14px; margin-bottom: 10px;
+}
+.comp-card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.comp-date { font-size: 0.76rem; color: var(--text-dim2); }
+.comp-query { font-size: 0.8rem; color: var(--text-dim); margin-bottom: 8px; }
+.comp-query b { color: var(--text); }
+.comp-query-range { color: var(--text-dim2); }
+.comp-results { margin: 0; padding-left: 20px; font-size: 0.85rem; }
+.comp-results li { margin-bottom: 2px; }
+.comp-arch { color: var(--arch); font-size: 0.76rem; }
+
+/* ── Home screen (Phase 4) ────────────────────────────────────────────────── */
+.home-screen { max-width: 900px; }
+.home-header { margin-bottom: 24px; }
+.home-header h2 { font-size: 1.8rem; margin: 0 0 6px; }
+.home-header .status-line { margin-top: 10px; }
+
+.home-quick-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 32px; }
+.quick-action-card {
+  display: block; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px;
+  padding: 20px; text-decoration: none; color: var(--text); transition: border-color 0.15s, transform 0.15s;
+}
+.quick-action-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.quick-action-icon { font-size: 1.8rem; margin-bottom: 8px; }
+.quick-action-title { font-size: 1.05rem; font-weight: 700; margin-bottom: 4px; }
+.quick-action-body { font-size: 0.82rem; color: var(--text-dim); }
+
+.home-section { margin-bottom: 32px; }
+.home-section-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.home-section-head h3 { font-size: 1.05rem; margin: 0; }
+.home-section-head a { color: var(--accent); text-decoration: none; font-size: 0.84rem; }
+.home-section-head a:hover { text-decoration: underline; }
+
+.home-empty { margin: 0; max-width: none; text-align: left; padding: 24px; }
+.home-empty .empty-state-cta { display: inline-block; }
+
+.home-prospect-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+.home-prospect-card {
+  display: block; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px 14px; text-decoration: none; color: var(--text);
+}
+.home-prospect-card:hover { border-color: var(--accent); }
+.home-prospect-card .prospect-name { font-size: 0.92rem; font-weight: 700; margin-bottom: 2px; }
+.home-prospect-card .prospect-card-meta { font-size: 0.78rem; color: var(--text-dim); }
+
+.home-search-list { display: flex; flex-direction: column; gap: 10px; }
+.home-search-card {
+  display: block; text-align: left; background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 8px; padding: 12px 14px; text-decoration: none; color: var(--text); cursor: pointer;
+}
+.home-search-card:hover { border-color: var(--accent); }
+.home-search-top { margin-bottom: 4px; }
+.home-search-results { font-size: 0.8rem; color: var(--text-dim); }

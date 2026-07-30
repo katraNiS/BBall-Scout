@@ -87,7 +87,12 @@ Primitive Traits & Compound Archetypes
 
 ## 4. Compound archetypes
 
-~29 σύνθετα archetypes που καλύπτουν guards, wings και bigs, και στις δύο άκρες. Λειτουργούν ως **named presets**: όταν τα traits ενός preset ανάβουν μαζί, ο παίκτης παίρνει το αντίστοιχο όνομα.
+**36** σύνθετα archetypes που καλύπτουν guards, wings και bigs, και στις δύο άκρες. Λειτουργούν ως **named presets**: όταν τα traits ενός preset ανάβουν μαζί, ο παίκτης παίρνει το αντίστοιχο όνομα.
+
+> Real players ανά preset: επιβεβαιωμένα με πραγματικά query στο τρέχον dataset
+> (`classify()` πάνω στο `data/nba_stats_full.csv`), όχι υποθετικά. Όπου ο πληθυσμός
+> είναι μικρός (π.χ. Two-Way Sharpshooter: μόλις 4 player-seasons συνολικά), αυτό
+> σημειώνεται — είναι ένδειξη πόσο σπάνιος είναι ο συνδυασμός traits, όχι bug.
 
 ### Guards
 
@@ -102,7 +107,13 @@ Primitive Traits & Compound Archetypes
 | Slashing Guard | `slasher` + `on_ball_creator` | Ja Morant, De'Aaron Fox, Anthony Edwards |
 | 3-and-D Guard | `spot_up_shooter` + `point_of_attack_defender` | Derrick White, Marcus Smart, Lu Dort |
 | Defensive Playmaker | `lead_playmaker` + `point_of_attack_defender` | Jrue Holiday, Derrick White |
+| Pure Shooter | `movement_shooter` + `spot_up_shooter` | Michael Finley, Reggie Miller, Ray Allen, Cuttino Mobley |
 | Sharpshooter | `movement_shooter` + `spot_up_shooter` + `efficient_finisher` | Stephen Curry, Klay Thompson, Damian Lillard |
+| Two-Way Sharpshooter | `movement_shooter` + `spot_up_shooter` + `efficient_finisher` + `versatile_wing_defender` | OG Anunoby, Joe Ingles — σπάνιος συνδυασμός: μόλις 4 player-seasons σε όλο το dataset |
+
+Το **Pure Shooter** και το **Sharpshooter** έχουν τον ίδιο πυρήνα traits — η διαφορά
+είναι αμιγώς η efficiency (`efficient_finisher`). Πρακτικά: high-volume shooters που
+δεν είναι top-tier efficient παίρνουν το πρώτο, οι πραγματικά ελίτ σκόρερ το δεύτερο.
 
 ### Wings
 
@@ -121,17 +132,29 @@ Primitive Traits & Compound Archetypes
 | Archetype | Trait combination | Real players |
 |---|---|---|
 | Point Center | `playmaking_big` + `post_scorer` + `efficient_finisher` | Nikola Jokić, Domantas Sabonis, Alperen Şengün |
+| All-Around Forward | `on_ball_creator` + `slasher` + `playmaking_big` | LeBron James, Kevin Durant, Giannis Antetokounmpo, Joel Embiid (seasons χωρίς ενεργό `efficient_finisher`) |
 | Two-Way Scoring Big | `post_scorer` + `rim_protector` | Joel Embiid, Anthony Davis |
 | Stretch Big | `stretch_big` + `efficient_finisher` | Karl-Anthony Towns, Lauri Markkanen, Kristaps Porziņģis |
+| Shooting Stretch Big | `stretch_big` + `spot_up_shooter` | Rashard Lewis, Trey Murphy III, Brandon Miller |
 | Stretch Rim Protector | `stretch_big` + `rim_protector` | Brook Lopez, Jaren Jackson Jr., Myles Turner |
 | Rim-Running Anchor | `rim_protector` + `roll_finisher` + `defensive_rebounder` | Rudy Gobert, Walker Kessler, Daniel Gafford, Clint Capela |
 | Pure Defensive Center | `rim_protector` + `defensive_rebounder` | Jakob Poeltl, Mitchell Robinson |
-| Playmaking Rim Protector | `playmaking_big` + `rim_protector` + `help_defender` | Draymond Green, Bam Adebayo |
-| Versatile / Swiss-Army Big | `playmaking_big` + `versatile_wing_defender` + `stretch_big` | Bam Adebayo, Al Horford |
+| Playmaking Rim Protector | `playmaking_big` + `rim_protector` + `help_defender` | Draymond Green (peak DPOY seasons), Bam Adebayo |
+| Defensive Playmaking Big | `playmaking_big` + `versatile_wing_defender` + `help_defender` | Draymond Green (seasons με πεσμένο block rate), Bam Adebayo |
+| Versatile / Swiss-Army Big | `playmaking_big` + `versatile_wing_defender` + `stretch_big` + `efficient_finisher` | Al Horford, Bam Adebayo |
 | Energy Big | `offensive_rebounder` + `roll_finisher` + `help_defender` | Steven Adams, Nic Claxton, Isaiah Hartenstein |
 | Throwback Post Hub | `post_scorer` + `offensive_rebounder` | Jonas Valančiūnas, Nikola Vučević |
+| Glass Cleaner | `defensive_rebounder` + `offensive_rebounder` | Nikola Vučević, Nikola Jokić, Deandre Ayton — ο πιο "ήπιος" preset, συχνά ενεργός (436 player-seasons) |
+| Putback Finisher | `roll_finisher` + `offensive_rebounder` | Nenad Krstić, Robin Lopez, Primož Brezec |
 | Stretch Four / Combo Forward | `stretch_big` + `spot_up_shooter` + `versatile_wing_defender` | Aaron Gordon, Naz Reid, Grant Williams |
 | Modern Two-Way Forward | `stretch_big` + `slasher` + `versatile_wing_defender` | Pascal Siakam, Julius Randle, Paolo Banchero |
+
+**Versatile / Swiss-Army Big** πήρε πρόσφατα το `efficient_finisher` σαν τέταρτο
+απαιτούμενο trait (δεν ήταν στην αρχική έκδοση του preset) — χωρίς αυτό, ο Draymond
+Green έπαιρνε λανθασμένα αυτό το label ενώ δεν είναι efficient scorer. Το
+**Defensive Playmaking Big** καλύπτει ακριβώς αυτή την περίπτωση: ίδιο playmaking-big
++ wing-defense προφίλ, χωρίς να απαιτείται ούτε shooting (`stretch_big`) ούτε
+efficiency — γι' αυτό είναι το πιο πιστό preset για τον μετέπειτα (post-peak) Draymond.
 
 ---
 
