@@ -1,5 +1,5 @@
 """
-UI / API metadata για τα 20 features.
+UI / API metadata για τα 21 features.
 
 Single source of truth για labels, ranges, format και grouping — mirror των
 constants που ζούσαν στο `app/streamlit_app.py`. Το `/stats` endpoint σερβίρει
@@ -51,6 +51,9 @@ DISPLAY_LABELS: dict[str, str] = {
     "stl":            "Steals",
     "blk":            "Blocks",
     "deflections":    "Deflections",
+    # Το μόνο feature όπου χαμηλό = καλύτερο· το λέμε ρητά στο label γιατί σε
+    # όλα τα υπόλοιπα ο χρήστης περιμένει "ψηλότερο = καλύτερο".
+    "def_rating":     "Defensive Rating (lower = better)",
     "net_rating":     "Net Rating",
     "height_cm":      "Height (cm)",
     "weight_lbs":     "Weight (lbs)",
@@ -75,6 +78,7 @@ FORMAT: dict[str, tuple[str, str]] = {
     "stl":            ("{:.2f}", "/gm"),
     "blk":            ("{:.2f}", "/gm"),
     "deflections":    ("{:.2f}", "/gm"),
+    "def_rating":     ("{:.1f}", ""),
     "net_rating":     ("{:+.1f}", ""),
     "height_cm":      ("{:.0f}", " cm"),
     "weight_lbs":     ("{:.0f}", " lbs"),
@@ -99,6 +103,8 @@ RANGES: dict[str, tuple[float, float, float]] = {
     "stl":            (0.0,   3.5,   0.1),
     "blk":            (0.0,   4.0,   0.1),
     "deflections":    (0.0,   6.0,   0.1),
+    # Πραγματικό εύρος μετά το MPG filter: 89.0–125.4 (mean 106.1, std 5.3)
+    "def_rating":     (90.0,  125.0, 0.5),
     "net_rating":     (-20.0, 20.0,  0.5),
     "height_cm":      (170.0, 225.0, 1.0),
     "weight_lbs":     (150.0, 290.0, 5.0),
@@ -110,7 +116,7 @@ GROUPS: dict[str, list[str]] = {
     "Shooting":             ["fg3a", "fg3_pct", "fta", "ft_pct", "pct_pts_2pt_mr"],
     "Playmaking":           ["ast_pct", "ast_to", "tov"],
     "Rebounding":           ["oreb_pct", "dreb_pct"],
-    "Defense":              ["stl", "blk", "deflections"],
+    "Defense":              ["stl", "blk", "deflections", "def_rating"],
     "Impact & Physical":    ["net_rating", "height_cm", "weight_lbs"],
 }
 

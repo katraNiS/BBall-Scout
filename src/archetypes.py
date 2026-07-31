@@ -18,7 +18,27 @@ ALL_POSITIONS = ["G", "G-F", "F", "F-C", "C"]
 BIG_POSITIONS = ["F", "F-C", "C"]   # group για position-relative normalization
 
 # Threshold: score >= TRAIT_THRESHOLD → trait "ανάβει"
-# 0.6 από empirical tuning — πιο χαμηλό δίνει ~3.5 traits/παίκτη (πολλά), 0.8+ χάνει Jokić
+#
+# ΜΗΝ το ανεβάσεις κοιτώντας μόνο το macro-F1 του validation/REPORT.md.
+# Το REPORT δείχνει "best global threshold 0.9" αλλά αυτό μετριέται στα 72
+# labeled stars, που έχουν 6-10 active traits και δεν γίνονται ΠΟΤΕ
+# Unclassified — δηλαδή η μετρική είναι τυφλή στο πραγματικό κόστος.
+# Μετρημένο σε ολόκληρο το dataset (8382 rows):
+#
+#   thr    macro-F1   top-1    Unclassified   presets σε χρήση
+#   0.6      0.597    20/72       15.0%             35        ← εδώ
+#   0.75     0.618    18/72       23.2%             35
+#   0.9      0.623    20/72       31.8%             31
+#
+# Στο 0.9 κερδίζουμε +0.026 macro-F1 με ΙΔΙΟ archetype top-1, αλλά ένας στους
+# τρεις παίκτες μένει χωρίς label στο UI και 4 archetypes παύουν να εμφανίζονται.
+# Ποιοτικά: ο Alex Caruso χάνει το spot_up_shooter και πέφτει από "3-and-D Guard"
+# σε fallback σύνθεση "Efficient Defender"· ο Giannis χάνει το efficient_finisher.
+#
+# Σημείωση: τα per-trait βέλτιστα κατώφλια συγκρούονται ευθέως
+# (versatile_wing_defender → 0.4, point_of_attack_defender → 0.95), οπότε κανένα
+# global threshold δεν είναι σωστό για όλα. Per-trait thresholds ΔΕΝ είναι λύση
+# στο τρέχον validation set: πολλά traits έχουν support 4-5 παίκτες → overfitting.
 TRAIT_THRESHOLD = 0.6
 
 

@@ -44,6 +44,24 @@ export default function ResultCard({ r, showRadar }: { r: MatchResult; showRadar
         <span className="card-season">{r.season}</span>
         <span className="badge badge-pos">{r.position_group}</span>
         <span className="badge badge-arch">{r.compound_archetype}</span>
+        {/*
+          coverage < 1 σημαίνει ότι κάποιο ζητούμενο stat δεν υπάρχει για την
+          εποχή αυτού του παίκτη (hustle tracking ξεκινά το 2016-17). Το score
+          έχει ήδη shrink-άρει server-side· εδώ απλώς το κάνουμε ορατό, ώστε ο
+          scout να ξέρει ότι το match κρίθηκε σε λιγότερα δεδομένα.
+        */}
+        {r.coverage < 0.999 && (
+          <span
+            className="badge badge-partial"
+            title={
+              `Το match κρίθηκε στο ${Math.round(r.coverage * 100)}% των stats ` +
+              `που ζήτησες — τα υπόλοιπα δεν καταγράφονταν το ${r.season}. ` +
+              `Το similarity έχει ήδη μειωθεί ανάλογα.`
+            }
+          >
+            {Math.round(r.coverage * 100)}% data
+          </span>
+        )}
       </div>
 
       <div className="sim-wrap">

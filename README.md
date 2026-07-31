@@ -103,7 +103,21 @@ backend τον _wrap-άρει_, δεν τον ξαναγράφει.
 - [x] **Classifier eval hardening** — validation ground truth (`validation/labels.py`) διορθώθηκε ώστε να μην
       τιμωρεί legit δευτερεύοντα traits πολυδιάστατων players· macro-F1 0.494 → 0.601 (+22%), χωρίς αλλαγές
       στο `src/`
+- [x] **Defensive matching fixes** — τρία δομικά προβλήματα που έκαναν τα defensive queries αναξιόπιστα:
+      (α) η σεζόν 2015-16 είχε corrupt hustle data (partial-season sample σε λάθος κλίμακα) και κυριαρχούσε
+      σε κάθε query — 5/10 → 0/10 αποτελέσματα από corrupt rows·
+      (β) το `def_rating` έλειπε από τα `FEATURE_COLS` παρόλο που ο classifier το χρησιμοποιούσε ήδη —
+      προστέθηκε με season-relative centering, γιατί είναι era-dependent (corr 0.62 με τη σεζόν)·
+      (γ) τα hustle stats λείπουν πριν το 2016-17, οπότε το imputation απέκλειε de facto το 56% της βάσης
+      από κάθε defensive query (**0%** pre-2016 αποτελέσματα)
+- [x] **Availability-aware matching** — το distance υπολογίζεται μόνο στις διαστάσεις με πραγματικά δεδομένα
+      ανά παίκτη, με confidence discount ώστε τα ελλιπή rows να μην εκτοπίζουν όσα έχουν πλήρη δεδομένα.
+      Defensive queries: **0% → 54.7%** pre-2016 representation (baseline 57.7%), με μηδενικό regression
+      στα offensive. Το UI δείχνει badge «N% data» όπου το match κρίθηκε σε λιγότερα stats.
+- [x] **Test suite** (`tests/`) — 47 pytest tests: data integrity, era balance, discriminative power,
+      threshold usability, metadata συνέπεια
 - [ ] Classifier tuning: archetype top-1 accuracy (ξεχωριστό, πιο δύσκολο πρόβλημα — βλ. `CLAUDE.md`)
+- [ ] Per-36 normalization των `stl`/`blk` (τώρα counting stats ενώ το rebounding είναι rate-adjusted)
 - [ ] Self-contained bundle (PyInstaller backend exe)
 - [ ] Multi-league support (NCAA, EuroLeague κ.α.)
 
@@ -122,7 +136,7 @@ ProspectMatch/
 │   └── nba_stats_full.csv     ← merged dataset (δεν είναι στο git)
 ├── pipeline/
 │   └── fetch_nba_data.py      ← fetch nba_api → CSV  [DONE]
-├── src/                       ← κοινός πυρήνας, ΑΜΕΤΑΒΛΗΤΟΣ
+├── src/                       ← κοινός πυρήνας (ο backend τον wrap-άρει, δεν τον μεταλλάσσει)
 │   ├── preprocessing.py       ← load, clean, normalize  [DONE]
 │   ├── archetypes.py          ← trait signals + presets + classifier  [DONE]
 │   └── similarity.py          ← matching engine  [DONE]
@@ -131,6 +145,10 @@ ProspectMatch/
 ├── frontend/                  ← React + TS + Vite + Recharts  [DONE]
 │   └── src/screens/           ← Home, Search, Prospects, ProspectForm (react-router HashRouter)  [DONE]
 ├── electron/                  ← desktop shell (spawn backend + load UI)  [DONE]
+├── validation/                ← measurement harnesses (δεν αλλάζουν το src/)
+│   ├── tune_threshold.py      ← per-trait P/R/F1 + threshold sweep → REPORT.md  [DONE]
+│   └── defense_impact.py      ← era balance / corrupt rows / def_rating → DEFENSE_IMPACT.md  [DONE]
+├── tests/                     ← pytest suite (47 tests)  [DONE]
 └── app/
     └── streamlit_app.py       ← Streamlit UI (legacy, λειτουργικό)  [DONE]
 ```
@@ -156,6 +174,17 @@ npm run dev            # backend + Vite + Electron μαζί (concurrently)
 **Ή μόνο το backend API:**
 ```bash
 cd backend && uvicorn main:app --reload      # → http://127.0.0.1:8000/docs
+```
+
+**Tests & validation harnesses** (χρειάζονται το dataset· αλλιώς κάνουν skip):
+```bash
+python -m pytest tests/ -q
+```
+```bash
+python validation/tune_threshold.py     # → validation/REPORT.md
+```
+```bash
+python validation/defense_impact.py     # → validation/DEFENSE_IMPACT.md
 ```
 
 > Prospects + search history γράφονται σε `./.prospectmatch-data/` (dev) ή στο path

@@ -39,9 +39,17 @@ stats + βάρη ανά stat + επιθυμητά traits — και το σύσ�
 > Δεν υπάρχει PostgreSQL/SQLAlchemy στο παρόν στάδιο. Τα `db/` αρχεία είναι
 > legacy από πρώιμο design — αγνόησέ τα.
 
-> **ΚΡΙΣΙΜΟ constraint:** ο κώδικας στο `src/` (preprocessing/archetypes/similarity)
-> παραμένει **αμετάβλητος** — είναι tested & working. Ο FastAPI backend τον _wrap-άρει_
-> προσθέτοντας το `src/` στο `sys.path` (βλ. `backend/engine.py`), δεν τον αλλάζει.
+> **ΚΡΙΣΙΜΟ constraint:** ο FastAPI backend **δεν μεταλλάσσει** το `src/`
+> (preprocessing/archetypes/similarity) — το _wrap-άρει_ προσθέτοντάς το στο
+> `sys.path` (βλ. `backend/engine.py`). Το `src/` παραμένει το single source of
+> truth του matching, ώστε Streamlit / API / μελλοντικά leagues να μοιράζονται
+> ακριβώς την ίδια λογική.
+>
+> Αυτό ΔΕΝ σημαίνει ότι το `src/` είναι παγωμένο. Σημαίνει ότι αλλάζει μόνο με
+> **μετρημένη αιτιολόγηση** — διάγνωση πάνω στο dataset, before/after νούμερα,
+> και test που κλειδώνει το αποτέλεσμα (βλ. Phase 8-9 και `tests/`). Κάθε αλλαγή
+> στα `FEATURE_COLS` αλλάζει το feature space: τα αποθηκευμένα comps και το
+> validation baseline πρέπει να ξανατρέξουν.
 > Setup/run του desktop stack: βλ. **`DEVELOPMENT.md`**.
 
 ---
@@ -111,12 +119,27 @@ ProspectMatch/
 │   ├── matching.py            ← accent/punct-tolerant name → row resolver
 │   ├── evaluate.py            ← per-trait P/R/F1, macro-F1, archetype top-1, structural misses
 │   ├── tune_threshold.py      ← score once → sweep threshold → REPORT.md
-│   └── REPORT.md              ← generated metrics snapshot
+│   ├── REPORT.md              ← generated metrics snapshot
+│   ├── defense_impact.py      ← era balance / corrupt-season / def_rating impact [DONE]
+│   └── DEFENSE_IMPACT.md      ← generated defensive-matching snapshot
+├── tests/                     ← pytest suite [DONE]
+│   ├── conftest.py            ← session-scoped fixtures· skip αν λείπει το dataset
+│   ├── test_defensive_features.py  ← data integrity: corrupt σεζόν, def_rating, metadata sync
+│   └── test_defensive_matching.py  ← behaviour: era balance, discriminative power
 └── app/
     └── streamlit_app.py       ← Streamlit UI (legacy, λειτουργικό) [DONE]
 ```
 
-Τρέξε το harness: `python validation/tune_threshold.py` (measurement-only, δεν αλλάζει το src/).
+Τρέξε τα harnesses (measurement-only, δεν αλλάζουν το `src/`):
+```bash
+python validation/tune_threshold.py
+```
+```bash
+python validation/defense_impact.py
+```
+```bash
+python -m pytest tests/ -q
+```
 
 ---
 
@@ -133,9 +156,17 @@ ProspectMatch/
 - `pct_pts_2pt_mr` (API: `PCT_PTS_2PT_MR`) — % points from mid-range, κρίσιμο για midrange_scorer
 - `pct_fga_3pt`, `pct_pts_3pt`, `pct_pts_paint`, `pct_pts_ft`, `pct_uast_2pm`
 
-**Phase 1c — Hustle** (`LeagueHustleStatsPlayer`, 2015-16+):
+**Phase 1c — Hustle** (`LeagueHustleStatsPlayer`, **αξιόπιστα από 2016-17+**):
 - `deflections`, `charges_drawn`, `box_outs`, `screen_assists`
-- Παλαιότερες σεζόν: NaN → group median (z ≈ 0, neutral)
+- Παλαιότερες σεζόν: NaN → group median
+- **Το 2015-16 απορρίπτεται** (`preprocessing.CORRUPT_HUSTLE_SEASONS`): είναι η
+  σεζόν που ξεκίνησε το hustle tracking, mid-season· μόνο 147/476 rows έχουν
+  τιμές και είναι partial-season sample, όχι averages (89.8% ακέραιες,
+  max 11.00 deflections/gm έναντι ~4-5 κάθε άλλης σεζόν).
+- Το group-median imputation δίνει z ≈ 0 που είναι neutral **μόνο όσο ο χρήστης
+  δεν ορίζει το stat**. Γι' αυτό το `load_and_clean()` καταγράφει `avail_<col>`
+  boolean στήλες **πριν** από κάθε fillna — τις καταναλώνει το
+  availability-aware masking του `similarity.py` (βλ. παρακάτω).
 
 **Rate limiting:** `time.sleep(1.5)` ανά call. Trade dedup: κράτα row με max games.
 
@@ -154,13 +185,13 @@ ProspectMatch/
 
 ## Preprocessing (`src/preprocessing.py`)
 
-**`FEATURE_COLS`** (20 features για similarity):
+**`FEATURE_COLS`** (21 features για similarity):
 ```
 pts, usg_pct, ts_pct, efg_pct,
 fg3a, fg3_pct, fta, ft_pct, pct_pts_2pt_mr,
 ast_pct, ast_to, tov,
 oreb_pct, dreb_pct,
-stl, blk, deflections,
+stl, blk, deflections, def_rating,
 net_rating, height_cm, weight_lbs
 ```
 
@@ -170,9 +201,25 @@ net_rating, height_cm, weight_lbs
 - Min games: ≥ 20 GP
 
 **NaN handling:**
-- `deflections` κ.α. hustle cols pre-2015: position_group median
+- `deflections` κ.α. hustle cols pre-2016 + corrupt 2015-16: position_group median
 - `fg3_pct` / `ft_pct` με 0 attempts: 0.0
 - `ast_to` όταν ast=0: 0.0
+
+**`def_rating` — season-relative centering (ΚΡΙΣΙΜΟ):**
+Το def_rating είναι έντονα era-dependent: `corr(def_rating, season) = 0.62`.
+League mean 1998-99: **99.7** → 2023-24: **113.1** (spread 13.4 points), ενώ το
+within-season std είναι μόλις **3.7** — δηλαδή η διαφορά *εποχής* είναι 3.6×
+μεγαλύτερη από τη διαφορά *παικτών*.
+
+Χωρίς διόρθωση το feature λειτουργεί ως **εποχή-selector** αντί για
+defense-selector. Το `load_and_clean()` κάνει re-centering ανά σεζόν στο global
+mean (`def_rating - season_mean + global_mean`), το οποίο:
+- μηδενίζει το era leak (`corr → 0.000`, spread → 0.000)
+- διατηρεί πλήρως το within-season signal (std παραμένει 3.69)
+- **κρατά τις μονάδες** σε "def rating points", ώστε τα UI ranges και το API
+  contract να μην αλλάξουν (γι' αυτό προτιμήθηκε από full per-season z-score)
+
+Η αρχική τιμή διατηρείται ως `def_rating_raw` για display/debugging.
 
 **Output:** `preprocess()` → `(df_clean, feature_matrix, scaler)` — fitted `StandardScaler`.
 
@@ -239,6 +286,35 @@ Cosine κανονικοποιεί τον |player| vector — τιμωρεί αδ
 **Weighted RMS (scale-invariant):** Διαιρούμε με `Σ w_j` ώστε το distance να μην αυξάνεται
 όσο ο χρήστης ορίζει περισσότερα stats. Χωρίς normalization, 6 stats με diff=0.5 δίνουν
 `sqrt(6×0.25)≈1.22` αντί `sqrt(0.25)=0.5` → similarity 45% αντί 67%.
+
+**Availability-aware masking + confidence discount (ΚΡΙΣΙΜΟ):**
+Τα hustle stats λείπουν πριν το 2016-17 (56% της βάσης). Το distance υπολογίζεται
+**μόνο** στις διαστάσεις που έχουν πραγματικά δεδομένα ανά row (renormalization
+του Σw σε αυτές), αλλιώς κάθε imputed row κάθεται σε σταθερή απόσταση τιμωρίας
+και οι defensive queries επιστρέφουν **0%** pre-2016 παίκτες.
+
+Σκέτο masking όμως **υπερδιορθώνει**: λιγότερες διαστάσεις = λιγότερες ευκαιρίες
+να απέχεις. Η διόρθωση είναι shrinkage προς το population prior:
+
+```
+coverage  = Σ(w διαθέσιμων) / Σ(w ζητούμενων)
+sim_final = sim_pop + coverage^α × (sim_masked − sim_pop)
+```
+
+Το `sim_pop` υπολογίζεται **αναλυτικά**: το feature space είναι z-scored, άρα
+`E[(u_j − P_j)²] = 1 + u_j²`. Ιδιότητες:
+- `coverage = 1` → `sim_final = sim_masked` **ακριβώς** → μηδενικό regression σε
+  offensive queries και σε tracking-era παίκτες
+- `coverage → 0` → `sim_final → sim_pop`: «δεν ξέρουμε» ≠ «ταιριάζει»
+
+`CONFIDENCE_ALPHA = 1.0` (γραμμικό shrinkage — posterior mean με το coverage ως
+effective sample size). Καλιμπραρίστηκε μετρώντας: α=0 ρίχνει τον Alex Caruso
+(coverage 1.00, προφανές match) στην 6η θέση πίσω από rows με 0.67· α≥1.5
+επαναφέρει τον αποκλεισμό των pre-2016. Αποτέλεσμα: tracking queries **0% → 54.7%**
+pre-2016 (baseline 57.7%).
+
+Το `coverage` επιστρέφεται στο API και εμφανίζεται ως badge «N% data» στο
+`ResultCard`.
 
 **Trait boost:** `+0.004` ανά shared active trait — tiebreaker μόνο, δεν κυριαρχεί.
 
@@ -346,10 +422,40 @@ prefill). Η καταγραφή είναι best-effort — μια αποτυχί
       Δοκιμάστηκε ΚΑΙ eligibility broadening (structural misses: `lead_playmaker`/`versatile_wing_defender`/
       `movement_shooter` επεκτάθηκαν σε ένα ακόμα position group) — αλλά έδειξε μηδαμινό κέρδος στο
       archetype top-1 (+1/72) με μικρή ζημιά στο macro-F1, οπότε ΔΕΝ κρατήθηκε.
-- [ ] Classifier tuning — archetype top-1 accuracy (21/72): το per-trait precision/recall βελτιώθηκε
+- [x] **Defensive matching — data & feature fixes** (Phase 8) — διάγνωση έδειξε ότι το πρόβλημα με τους
+      αμυντικούς ΔΕΝ ήταν τα weights αλλά δομικό. Τρία ευρήματα, όλα μετρημένα:
+      **(α)** Η σεζόν 2015-16 ήταν corrupt (partial-season sample: 89.8% ακέραιες τιμές, max 11.00
+      deflections/gm) και κυριαρχούσε σε κάθε high-deflections query — **5/10 → 0/10** αποτελέσματα
+      από corrupt rows, με Curry/Harden/Butler να εμφανίζονται ως «elite stoppers».
+      **(β)** Το `def_rating` (100% coverage, corr ≤0.16 με τα υπόλοιπα features) ήταν ήδη validated
+      signal στον classifier αλλά **έλειπε από τα `FEATURE_COLS`** — ο χρήστης δεν μπορούσε να ζητήσει
+      άμυνα χωρίς να αποκλείσει το 56% της βάσης μέσω του `deflections`.
+      **(γ)** Σκέτη προσθήκη του def_rating ΔΕΝ αρκούσε: είναι era-dependent (corr 0.62 με τη σεζόν),
+      οπότε λειτουργούσε ως εποχή-selector (84% pre-2016 vs baseline 58%). Χρειάστηκε season-relative
+      centering → **63%**, μέσα στο εύρος των offensive controls.
+      Αποτέλεσμα: defensive queries **0% → 48-84%** pre-tracking representation· classifier macro-F1
+      στο βέλτιστο threshold **0.607 → 0.623**· `versatile_wing_defender` F1 0.424 → 0.486,
+      `rim_protector` 0.769 → 0.800. Καλύπτεται από 34 tests (`tests/`).
+- [x] **Availability-aware masking + confidence discount** (Phase 9) — το distance υπολογίζεται μόνο
+      στις διαστάσεις με πραγματικά δεδομένα ανά row (νέες `avail_*` στήλες + `build_availability_matrix()`),
+      με shrinkage προς το population prior ώστε να μην υπερδιορθώνει. Tracking queries **0% → 54.7%**
+      pre-2016 (baseline 57.7%), με **μηδενικό regression** όπου coverage=1 (αποδεδειγμένο με test).
+      Το `coverage` εκτίθεται στο API και ως badge «N% data» στο UI. Βλ. §Matching Engine.
+- [x] **Επανα-συντονισμός `TRAIT_THRESHOLD`** (Phase 9) — διερευνήθηκε, **δεν αλλάχθηκε**. Το REPORT.md
+      δείχνει best macro-F1 στο 0.9 (0.623 vs 0.597), αλλά η μετρική είναι τυφλή: τα 72 labeled stars
+      έχουν 6-10 active traits και δεν γίνονται ποτέ Unclassified. Μετρημένο σε ΟΛΟ το dataset, το 0.9
+      αφήνει **32% των παικτών χωρίς label** (από 15%) και σβήνει 4 archetypes, με **ίδιο** archetype
+      top-1 (20/72). Ποιοτικά: ο Caruso πέφτει από "3-and-D Guard" σε fallback "Efficient Defender".
+      Το `tune_threshold.py` τυπώνει πλέον και τις usability στήλες ώστε η απόφαση να μην ξαναγίνει
+      στα τυφλά. Τα per-trait βέλτιστα συγκρούονται (0.4 έως 0.95) — per-trait thresholds θα ήταν
+      overfitting σε support 4-5 παικτών.
+- [ ] Classifier tuning — archetype top-1 accuracy (20/72 @ 0.6): το per-trait precision/recall βελτιώθηκε
       δραματικά, αλλά η ταυτοποίηση **compound label** παραμένει δύσκολη για πολυδιάστατα stars — συχνά
       το δεύτερο preset είναι εξίσου υποστηρίξιμο (π.χ. Sabonis: "Point Center" vs "All-Around Forward").
       Requires careful, per-case validation πριν αγγίξει κανείς weights/dict-ordering — βλ. §5 "Unicorns".
+- [ ] Per-36 normalization των `stl`/`blk` — `corr(stl, min) = +0.64`, δηλαδή το stl μετράει κατά κύριο
+      λόγο *πόσο παίζεις*· per-36 πέφτει σε +0.08. Το rebounding είναι ήδη rate-adjusted (`oreb_pct`/
+      `dreb_pct`, corr ≈ 0) — ασύμμετρος σχεδιασμός.
 - [ ] Self-contained bundle: PyInstaller backend exe (τώρα fallback σε system Python)
 - [ ] Multi-league support
 
@@ -358,8 +464,8 @@ prefill). Η καταγραφή είναι best-effort — μια αποτυχί
 ## Επόμενα βήματα
 
 Τα 5 phases του `PHASE_PROMPTS.md` (router refactor → prospect storage → prospect UI →
-NBA comps → home screen) + Phases 5–7 (UI polish, docs sync, classifier eval hardening)
-έχουν ολοκληρωθεί. Παραμένουν από το αρχικό roadmap:
+NBA comps → home screen) + Phases 5–8 (UI polish, docs sync, classifier eval hardening,
+defensive matching fixes) έχουν ολοκληρωθεί. Παραμένουν από το αρχικό roadmap:
 
 1. **Classifier tuning (archetype top-1)** — η per-trait ακρίβεια βελτιώθηκε σημαντικά (macro-F1 0.601),
    αλλά η top-1 archetype accuracy (21/72) χρειάζεται προσεκτική, ανά-περίπτωση δουλειά — πολλά misses

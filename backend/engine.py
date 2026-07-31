@@ -178,6 +178,12 @@ class Engine:
             "height_cm":          _num(height),
             "weight_lbs":         _num(weight),
             "similarity":         float(row["similarity"]),
+            # Κλάσμα του ζητούμενου weight που είχε πραγματικά δεδομένα για
+            # αυτό το row. < 1.0 σημαίνει ότι κάποιο ζητούμενο stat δεν
+            # υπάρχει για την εποχή του παίκτη (hustle stats πριν το 2016-17)
+            # και το score έχει ήδη shrink-άρει ανάλογα — ο client το δείχνει
+            # ως confidence indicator.
+            "coverage":           float(row.get("coverage", 1.0)),
             "boost":              float(row["boost"]),
             "final_score":        float(row["final_score"]),
             "active_traits":      list(row.get("active_traits", []) or []),

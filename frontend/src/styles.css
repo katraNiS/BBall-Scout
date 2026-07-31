@@ -162,6 +162,13 @@ select[multiple] option { padding: 3px 6px; border-radius: 4px; }
 }
 .badge-pos  { background: var(--pos-bg); color: var(--pos); }
 .badge-arch { background: var(--arch-bg); color: var(--arch); }
+/* Partial-data indicator: το match κρίθηκε σε λιγότερα stats απ' όσα ζητήθηκαν
+   (tracking stats δεν υπάρχουν πριν το 2016-17). Διακριτικό warning tone —
+   δεν είναι σφάλμα, είναι πληροφορία εμπιστοσύνης. */
+.badge-partial {
+  background: rgba(217, 164, 65, 0.16); color: #d9a441;
+  border: 1px solid rgba(217, 164, 65, 0.32); cursor: help;
+}
 .sim-wrap { display: flex; align-items: center; gap: 12px; margin: 12px 0; }
 .sim-bar { flex: 1; height: 8px; background: var(--bg-card-2); border-radius: 5px; overflow: hidden; }
 .sim-bar > div { height: 100%; background: var(--accent); border-radius: 5px; }

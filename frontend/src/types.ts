@@ -60,6 +60,13 @@ export interface MatchResult {
   height_cm: number | null;
   weight_lbs: number | null;
   similarity: number;
+  /**
+   * Κλάσμα (0–1] του ζητούμενου weight που είχε πραγματικά δεδομένα.
+   * < 1 όταν ο χρήστης ζήτησε hustle stat που δεν υπάρχει για την εποχή του
+   * παίκτη (tracking data ξεκινά το 2016-17). Το similarity έχει ήδη
+   * shrink-άρει ανάλογα — αυτό είναι μόνο ένδειξη εμπιστοσύνης για το UI.
+   */
+  coverage: number;
   boost: number;
   final_score: number;
   active_traits: string[];
