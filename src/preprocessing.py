@@ -93,7 +93,11 @@ FEATURE_COLS = [
 
 
 def load_and_clean(path: Path = DATASET_PATH) -> pd.DataFrame:
-    df = pd.read_csv(path)
+    # low_memory=False: το CSV έχει 67 στήλες και το `weight_lbs` αποθηκεύεται ως
+    # string (βλ. numeric coercion παρακάτω). Με chunked parsing η στήλη βγάζει
+    # διαφορετικό dtype ανά chunk → DtypeWarning. Δεν επηρεάζει τα δεδομένα,
+    # αλλά ο πλήρης parse είναι ντετερμινιστικός και σβήνει τον θόρυβο.
+    df = pd.read_csv(path, low_memory=False)
 
     # Tiered MPG filter: 1996–2012 → ≥20 MPG, 2013+ → ≥10 MPG
     min_mpg_per_row = df["season"].apply(get_min_mpg)

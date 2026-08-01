@@ -163,6 +163,58 @@ class TestDefRatingFeature:
         assert abs(matrix[:, i].std() - 1.0) < 0.01, "δεν κανονικοποιήθηκε"
 
 
+# ─── Phase 1d: matchup-based defensive impact ─────────────────────────────────
+
+class TestDefensiveImpactColumns:
+    """
+    Το `LeagueDashPtDefend` (Phase 1d) δίνει DFG% — τι σουτάρουν οι αντίπαλοι
+    όταν ο παίκτης είναι ο κοντινότερος defender. Δεν είναι ακόμα στα
+    FEATURE_COLS, οπότε τα tests κάνουν skip αν λείπουν οι στήλες (παλιό
+    dataset) αντί να αποτύχουν.
+    """
+
+    COLS = ["d_ovr_diff", "d_fg3_diff", "d_rim_diff"]
+
+    def _require(self, raw_df):
+        missing = [c for c in self.COLS if c not in raw_df.columns]
+        if missing:
+            pytest.skip(f"λείπουν {missing} — τρέξε το Phase 1d του pipeline")
+
+    def test_columns_present_and_populated(self, raw_df):
+        self._require(raw_df)
+        for c in self.COLS:
+            cov = raw_df[c].notna().mean()
+            assert cov > 0.35, f"{c}: coverage μόλις {cov:.1%}"
+
+    def test_tracking_era_only(self, raw_df):
+        """Τα matchup data ξεκινούν 2013-14· το 2012-13 επιστρέφει 0 rows."""
+        self._require(raw_df)
+        have = raw_df[raw_df["d_ovr_diff"].notna()]
+        assert have["season"].str[:4].astype(int).min() >= 2013
+
+    def test_diff_is_era_stable(self, raw_df):
+        """
+        Σε αντίθεση με το raw def_rating (corr 0.62 με τη σεζόν), το `_diff`
+        είναι ήδη baseline-adjusted → δεν χρειάζεται season-centering. Αν αυτό
+        πάψει να ισχύει, το feature θα γίνει εποχή-selector.
+        """
+        self._require(raw_df)
+        have = raw_df[raw_df["d_ovr_diff"].notna()]
+        years = have["season"].str[:4].astype(int)
+        r = abs(np.corrcoef(have["d_ovr_diff"], years)[0, 1])
+        assert r < 0.10, f"corr(d_ovr_diff, year) = {r:.3f} — era leak"
+
+    def test_negative_means_good_defense(self, raw_df):
+        """
+        Sanity της κατεύθυνσης: το `_diff` = DFG% − baseline, οπότε πρέπει να
+        κεντράρει κοντά στο 0 και να έχει και τα δύο πρόσημα.
+        """
+        self._require(raw_df)
+        v = raw_df["d_ovr_diff"].dropna()
+        assert abs(v.mean()) < 0.05, f"mean {v.mean():.3f} — αναμενόταν ~0"
+        assert (v < 0).any() and (v > 0).any()
+
+
 # ─── Threshold health ─────────────────────────────────────────────────────────
 
 class TestTraitThresholdHealth:

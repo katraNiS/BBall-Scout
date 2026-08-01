@@ -38,7 +38,7 @@ def raw_df():
     _require_dataset()
     import pandas as pd
 
-    return pd.read_csv(DATASET)
+    return pd.read_csv(DATASET, low_memory=False)
 
 
 @pytest.fixture(scope="session")

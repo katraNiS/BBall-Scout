@@ -87,7 +87,7 @@ ProspectMatch/
 ├── DEVELOPMENT.md             ← setup/run/build του Electron+FastAPI+React stack [DONE]
 ├── package.json               ← root: `npm run dev` (concurrently) + `npm run dist` (electron-builder)
 ├── data/
-│   └── nba_stats_full.csv     ← merged dataset (~8.3k rows μετά MPG filter, δεν είναι στο git)
+│   └── nba_stats_full.csv     ← merged dataset, 13987×67 (~8.3k rows μετά MPG filter· δεν είναι στο git)
 ├── pipeline/
 │   └── fetch_nba_data.py      ← 4-phase fetch: base+advanced / scoring / hustle / defense [DONE]
 ├── src/                       ← ΑΜΕΤΑΒΛΗΤΟ core (το wrap-άρει ο backend)
@@ -436,10 +436,21 @@ prefill). Η καταγραφή είναι best-effort — μια αποτυχί
 - [x] API exploration
 - [x] Archetype design: 18 primitives + compound presets (spec 29 → κώδικας 36) + `ARCHETYPES.md`
 - [x] `pipeline/fetch_nba_data.py` — 4-phase fetch (base/advanced/scoring/hustle/defense)
-- [x] **Phase 1d — defensive impact fetch** (`LeagueDashPtDefend`, 36 calls) — τραβάει DFG% ανά zone
-      (overall / 3PT / rim). Ο κώδικας είναι έτοιμος και δοκιμασμένος σε μία σεζόν· **το fetch δεν έχει
-      τρέξει ακόμα σε όλες**. Επόμενο βήμα: `python pipeline/fetch_nba_data.py` (θα κάνει skip ό,τι
-      υπάρχει ήδη), μετά απόφαση για `FEATURE_COLS` + trait signals.
+- [x] **Phase 1d — defensive impact fetch** (`LeagueDashPtDefend`, 36 calls) — **έχει τρέξει**:
+      `data/seasons_defense.csv` (6315 rows, 2013-14 → 2024-25) και merged στο `nba_stats_full.csv`
+      (55 → **67 στήλες**, 13987 rows αμετάβλητα). Coverage στο τελικό dataset: **45.1%** (τα pre-2013
+      rows είναι NaN).
+      Επαληθεύτηκε ότι το merge είναι **λειτουργικά ουδέτερο**: και τα 21 `FEATURE_COLS` byte-identical,
+      macro-F1 0.600 και archetype top-1 21/72 αμετάβλητα, 56 tests περνούν. Οι νέες στήλες απλώς
+      κάθονται στο CSV — το `preprocess()` αγνοεί ό,τι δεν είναι στα `FEATURE_COLS`.
+      **Era-stable χωρίς διόρθωση** (σε αντίθεση με το `def_rating`): `corr(d_ovr_diff, year) = −0.009`,
+      spread σεζόν 0.0096 έναντι within-std 0.0744 (13%· το def_rating ήταν 364% πριν το centering).
+      Το `d_rim_diff` είναι ελαφρώς era-dependent (corr −0.128, λόγος 42%) — προσοχή αν μπει στα features.
+      ⚠️ **Small-sample noise:** `std(d_ovr_diff)` πέφτει 0.076 → 0.037 με `d_ovr_fga ≥ 6`. Οι ακραίες
+      τιμές (±0.674) προέρχονται από rows με ελάχιστα contested attempts — θα χρειαστεί volume filter.
+- [ ] **Ένταξη των `d_*_diff` στο engine** — το επόμενο βήμα: `FEATURE_COLS` + `avail_*` στήλες (το
+      availability-aware masking του Phase 9 τα χειρίζεται ήδη) + trait signals στο
+      `versatile_wing_defender`. Αλλάζει το feature space → re-run validation baseline + saved comps.
 - [x] `src/preprocessing.py` — tiered MPG, NaN handling, z-scores
 - [x] `src/archetypes.py` — trait signals + compound presets + classifier + PRESET_POSITIONS
 - [x] `src/similarity.py` — weighted RMS matching + pct_cols output + explanations
