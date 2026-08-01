@@ -89,7 +89,7 @@ ProspectMatch/
 ├── data/
 │   └── nba_stats_full.csv     ← merged dataset (~8.3k rows μετά MPG filter, δεν είναι στο git)
 ├── pipeline/
-│   └── fetch_nba_data.py      ← 3-phase fetch: base+advanced / scoring / hustle [DONE]
+│   └── fetch_nba_data.py      ← 4-phase fetch: base+advanced / scoring / hustle / defense [DONE]
 ├── src/                       ← ΑΜΕΤΑΒΛΗΤΟ core (το wrap-άρει ο backend)
 │   ├── preprocessing.py       ← load/clean/normalize, FEATURE_COLS, preprocess() [DONE]
 │   ├── archetypes.py          ← 18 traits + signals + 36 compound presets + classify() [DONE]
@@ -173,6 +173,32 @@ python -m pytest tests/ -q
   δεν ορίζει το stat**. Γι' αυτό το `load_and_clean()` καταγράφει `avail_<col>`
   boolean στήλες **πριν** από κάθε fillna — τις καταναλώνει το
   availability-aware masking του `similarity.py` (βλ. παρακάτω).
+
+**Phase 1d — Defensive impact** (`LeagueDashPtDefend`, **2013-14+**):
+Τι σουτάρουν οι αντίπαλοι όταν ο παίκτης είναι ο **κοντινότερος defender**.
+Τρεις categories × 12 σεζόν = 36 calls → `data/seasons_defense.csv`.
+
+| Category | Στήλες | Χρήση |
+|---|---|---|
+| `Overall` | `d_ovr_fga/pct/base/diff` | γενικό defensive impact |
+| `3 Pointers` | `d_fg3_*` | perimeter defense |
+| `Less Than 6Ft` | `d_rim_*` | rim protection |
+
+Το `_diff` (API: `PCT_PLUSMINUS`) είναι το χρήσιμο σήμα: πόσο **χειρότερα**
+σουτάρουν οι αντίπαλοι σε σχέση με τον κανονικό τους μέσο όρο. Είναι ήδη
+baseline-adjusted → λιγότερο team/era-dependent από το raw DFG%.
+**Αρνητικό = καλή άμυνα.**
+
+Γιατί προστέθηκε: το `deflections` μετράει *στυλ* άμυνας (ball-hawking), όχι
+ποιότητα. Μετρημένο στο 2023-24: `corr(deflections, d_ovr_diff) = +0.017` —
+σχεδόν **ορθογώνια πληροφορία**. Ο Aaron Gordon (deflections 1.38, από τους
+misses του `versatile_wing_defender`) βγαίνει 2ος καλύτερος με `d_ovr_diff`
+−0.054· ο Gobert `d_rim_diff` −0.134· ο Herbert Jones `d_fg3_diff` −0.060.
+
+⚠️ Κάθε category επιστρέφει **διαφορετικά** column names (`D_FG_PCT` vs
+`FG3_PCT` vs `LT_06_PCT`) — κανονικοποιούνται στο `DEFEND_CATEGORIES` dict.
+Το `FG3_PCT` **πρέπει** να μετονομαστεί: συγκρούεται με το offensive `fg3_pct`.
+Επίσης το endpoint κλειδώνει στο `CLOSE_DEF_PERSON_ID`, όχι `PLAYER_ID`.
 
 **Rate limiting:** `time.sleep(1.5)` ανά call. Trade dedup: κράτα row με max games.
 
@@ -409,7 +435,11 @@ prefill). Η καταγραφή είναι best-effort — μια αποτυχί
 - [x] Ιδέα & scope
 - [x] API exploration
 - [x] Archetype design: 18 primitives + compound presets (spec 29 → κώδικας 36) + `ARCHETYPES.md`
-- [x] `pipeline/fetch_nba_data.py` — 3-phase fetch (base/advanced/scoring/hustle)
+- [x] `pipeline/fetch_nba_data.py` — 4-phase fetch (base/advanced/scoring/hustle/defense)
+- [x] **Phase 1d — defensive impact fetch** (`LeagueDashPtDefend`, 36 calls) — τραβάει DFG% ανά zone
+      (overall / 3PT / rim). Ο κώδικας είναι έτοιμος και δοκιμασμένος σε μία σεζόν· **το fetch δεν έχει
+      τρέξει ακόμα σε όλες**. Επόμενο βήμα: `python pipeline/fetch_nba_data.py` (θα κάνει skip ό,τι
+      υπάρχει ήδη), μετά απόφαση για `FEATURE_COLS` + trait signals.
 - [x] `src/preprocessing.py` — tiered MPG, NaN handling, z-scores
 - [x] `src/archetypes.py` — trait signals + compound presets + classifier + PRESET_POSITIONS
 - [x] `src/similarity.py` — weighted RMS matching + pct_cols output + explanations

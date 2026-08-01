@@ -13,6 +13,10 @@
   LeagueHustleStatsPlayer ανά season (2015-16+ μόνο)
   ~10 API calls, ~15 δευτερόλεπτα
 
+Φάση 1d — defensive impact (matchup-based):
+  LeagueDashPtDefend × 3 categories ανά season (2013-14+ μόνο)
+  ~36 API calls, ~1 λεπτό
+
 Φάση 2 — player info (position, height):
   CommonPlayerInfo ανά παίκτη (~2500 calls, ~60 λεπτά)
   Υποστηρίζει checkpoint/resume αν διακοπεί.
@@ -21,6 +25,7 @@ Output:
   data/seasons_raw.csv        ← merged Base+Advanced, όλες οι seasons
   data/seasons_scoring.csv    ← shot profile (% πόντων / % FGA ανά zone)
   data/seasons_hustle.csv     ← deflections, charges, box outs (2015-16+)
+  data/seasons_defense.csv    ← DFG% / diff vs baseline ανά zone (2013-14+)
   data/player_info.csv        ← position, height, weight ανά παίκτη
   data/nba_stats_full.csv     ← τελικό merged dataset
 """
@@ -34,6 +39,7 @@ import pandas as pd
 from nba_api.stats.endpoints import (
     CommonPlayerInfo,
     LeagueDashPlayerStats,
+    LeagueDashPtDefend,
     LeagueHustleStatsPlayer,
 )
 
@@ -54,6 +60,10 @@ SEASONS = [f"{y}-{str(y + 1)[2:]}" for y in range(1996, 2025)]
 
 # Hustle stats διαθέσιμα μόνο από 2015-16 (nba.com player tracking era)
 HUSTLE_SEASONS = [s for s in SEASONS if int(s[:4]) >= 2015]
+
+# Defensive matchup tracking (SportVU): επιβεβαιωμένο ότι το 2012-13 επιστρέφει
+# 0 rows ενώ το 2013-14 δίνει 481 — άρα το tracking ξεκινά ουσιαστικά το 2013-14.
+DEFEND_SEASONS = [s for s in SEASONS if int(s[:4]) >= 2013]
 
 # Columns που κρατάμε από το Base endpoint
 BASE_COLS = [
@@ -97,6 +107,44 @@ HUSTLE_COLS = [
     "DEFLECTIONS", "CHARGES_DRAWN",
     "BOX_OUTS", "SCREEN_ASSISTS",
 ]
+
+# Defensive impact (LeagueDashPtDefend) — τι σουτάρουν οι αντίπαλοι όταν ΑΥΤΟΣ
+# είναι ο κοντινότερος defender.
+#
+# ΓΙΑΤΙ: το `deflections` μετράει ΣΤΥΛ άμυνας (ball-hawking), όχι ποιότητα —
+# ο Mikal Bridges (elite on-ball, δεν κάνει gambles) έχει 1.71 ενώ ο Luka
+# Doncic 3.38. Το DFG% μετράει ΑΠΟΤΕΛΕΣΜΑ, οπότε τους διαχωρίζει σωστά.
+# Βλ. §versatile_wing_defender στο src/archetypes.py.
+#
+# ΠΡΟΣΟΧΗ — κάθε defense_category επιστρέφει ΔΙΑΦΟΡΕΤΙΚΑ column names:
+#   Overall       → D_FGA / D_FG_PCT / NORMAL_FG_PCT / PCT_PLUSMINUS
+#   3 Pointers    → FG3A  / FG3_PCT  / NS_FG3_PCT    / PLUSMINUS
+#   Less Than 6Ft → FGA_LT_06 / LT_06_PCT / NS_LT_06_PCT / PLUSMINUS
+# Τα κανονικοποιούμε σε <prefix>_fga / _pct / _diff ώστε ο downstream κώδικας
+# να μη χρειάζεται να ξέρει το quirk. Το FG3_PCT ΠΡΕΠΕΙ να μετονομαστεί:
+# συγκρούεται με το offensive fg3_pct του ίδιου του παίκτη.
+#
+# Το `_diff` (PCT_PLUSMINUS) είναι το πιο χρήσιμο σήμα: πόσο χειρότερα
+# σουτάρουν οι αντίπαλοι σε σχέση με τον ΚΑΝΟΝΙΚΟ τους μέσο όρο. Είναι ήδη
+# baseline-adjusted, άρα λιγότερο team/era-dependent από το raw DFG%.
+# Αρνητικό = καλή άμυνα.
+DEFEND_CATEGORIES = {
+    "Overall": {
+        "prefix": "d_ovr",
+        "fga": "D_FGA", "pct": "D_FG_PCT",
+        "base": "NORMAL_FG_PCT", "diff": "PCT_PLUSMINUS",
+    },
+    "3 Pointers": {
+        "prefix": "d_fg3",
+        "fga": "FG3A", "pct": "FG3_PCT",
+        "base": "NS_FG3_PCT", "diff": "PLUSMINUS",
+    },
+    "Less Than 6Ft": {
+        "prefix": "d_rim",
+        "fga": "FGA_LT_06", "pct": "LT_06_PCT",
+        "base": "NS_LT_06_PCT", "diff": "PLUSMINUS",
+    },
+}
 
 
 # ─── Φάση 1: Base + Advanced ─────────────────────────────────────────────────
@@ -279,6 +327,109 @@ def fetch_all_hustle_stats(output_path: Path) -> pd.DataFrame:
     return result
 
 
+# ─── Φάση 1d: Defensive impact (matchup-based) ───────────────────────────────
+
+def fetch_defend_category(season: str, category: str) -> pd.DataFrame | None:
+    """
+    DFG% για μία σεζόν × μία defense_category.
+
+    Το endpoint κλειδώνει στο `CLOSE_DEF_PERSON_ID` (όχι `PLAYER_ID`) — είναι
+    ο defender, όχι ο shooter. Το μετονομάζουμε ώστε να κάνει join με τα
+    υπόλοιπα sources.
+    """
+    spec = DEFEND_CATEGORIES[category]
+    try:
+        log.info(f"  {season} Defend [{category}]...")
+        df = LeagueDashPtDefend(
+            season=season,
+            defense_category=category,
+            per_mode_simple="PerGame",
+            season_type_all_star="Regular Season",
+            timeout=30,
+        ).get_data_frames()[0]
+        time.sleep(SLEEP_BULK)
+    except Exception as e:
+        log.error(f"  {season} Defend [{category}] failed: {e}")
+        return None
+
+    if df.empty:
+        log.warning(f"  {season} Defend [{category}] → 0 rows (πριν το tracking era;)")
+        return None
+
+    df = df.rename(columns={"CLOSE_DEF_PERSON_ID": "PLAYER_ID"})
+
+    p = spec["prefix"]
+    rename = {
+        spec["fga"]:  f"{p}_fga",     # volume — πόσο συχνά τον challenge-άρουν
+        spec["pct"]:  f"{p}_pct",     # τι σουτάρουν εναντίον του
+        spec["base"]: f"{p}_base",    # τι σουτάρουν κανονικά
+        spec["diff"]: f"{p}_diff",    # διαφορά· αρνητικό = καλή άμυνα
+    }
+    missing = [c for c in rename if c not in df.columns]
+    if missing:
+        log.warning(f"  {season} [{category}]: λείπουν columns {missing} — skip")
+        return None
+
+    # Games column: το endpoint δίνει και GP και G· κρατάμε ό,τι υπάρχει για dedup
+    gp_col = "GP" if "GP" in df.columns else ("G" if "G" in df.columns else None)
+    keep = ["PLAYER_ID"] + ([gp_col] if gp_col else []) + list(rename)
+    result = df[keep].rename(columns=rename)
+
+    if gp_col:
+        result = (
+            result.sort_values(gp_col, ascending=False)
+            .drop_duplicates(subset="PLAYER_ID", keep="first")
+            .drop(columns=[gp_col])
+            .reset_index(drop=True)
+        )
+    else:
+        result = result.drop_duplicates(subset="PLAYER_ID", keep="first")
+
+    return result
+
+
+def fetch_defense_season(season: str) -> pd.DataFrame | None:
+    """Και τις 3 categories για μία σεζόν, merged σε ένα row ανά παίκτη."""
+    merged: pd.DataFrame | None = None
+    for category in DEFEND_CATEGORIES:
+        part = fetch_defend_category(season, category)
+        if part is None:
+            continue
+        merged = part if merged is None else merged.merge(part, on="PLAYER_ID", how="outer")
+
+    if merged is None:
+        return None
+
+    merged["season"] = season
+    log.info(f"  {season} Defense → {len(merged)} players")
+    return merged
+
+
+def fetch_all_defense_stats(output_path: Path) -> pd.DataFrame:
+    if output_path.exists():
+        log.info("seasons_defense.csv υπάρχει ήδη — παρακάμπτεται")
+        return pd.read_csv(output_path)
+
+    frames = []
+    for season in DEFEND_SEASONS:
+        df = fetch_defense_season(season)
+        if df is not None:
+            frames.append(df)
+
+    cols = [f"{s['prefix']}_{k}" for s in DEFEND_CATEGORIES.values()
+            for k in ("fga", "pct", "base", "diff")]
+    if not frames:
+        log.warning("Κανένα defense data — επιστρέφεται κενό DataFrame")
+        empty = pd.DataFrame(columns=["PLAYER_ID", "season"] + cols)
+        empty.to_csv(output_path, index=False)
+        return empty
+
+    result = pd.concat(frames, ignore_index=True)
+    result.to_csv(output_path, index=False)
+    log.info(f"Αποθηκεύτηκαν {len(result)} rows → {output_path}")
+    return result
+
+
 # ─── Φάση 2: Player info ──────────────────────────────────────────────────────
 
 def height_to_cm(height_str: str) -> float | None:
@@ -360,6 +511,7 @@ def build_final_dataset(
     info_df: pd.DataFrame,
     scoring_df: pd.DataFrame | None = None,
     hustle_df: pd.DataFrame | None = None,
+    defense_df: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """
     Merge όλων των sources σε ένα DataFrame.
@@ -368,7 +520,10 @@ def build_final_dataset(
     1. seasons_raw (Base+Advanced) LEFT JOIN seasons_scoring (on player_id + season)
     2. result LEFT JOIN seasons_hustle (on player_id + season)
        → NaN για pre-2015 rows (χειρίζεται στο preprocessing)
-    3. result LEFT JOIN player_info (on player_id)
+    3. result LEFT JOIN seasons_defense (on player_id + season)
+       → NaN για pre-2013 rows· το preprocessing καταγράφει `avail_*` πριν το
+         imputation και το similarity engine τα μασκάρει (βλ. CLAUDE.md)
+    4. result LEFT JOIN player_info (on player_id)
 
     LEFT JOIN παντού: κρατάμε όλες τις σεζόν, ακόμα και αν λείπει κάποιο source.
     """
@@ -396,6 +551,16 @@ def build_final_dataset(
         hustle_cols = [c for c in hustle_df.columns if c not in ("player_id", "season")]
         merged = merged.merge(
             hustle_df[["player_id", "season"] + hustle_cols],
+            on=["player_id", "season"],
+            how="left",
+        )
+
+    # Φάση 1d merge: defensive impact (NaN για pre-2013 seasons — φυσιολογικό)
+    if defense_df is not None and not defense_df.empty:
+        defense_df = defense_df.rename(columns={"PLAYER_ID": "player_id"})
+        defense_cols = [c for c in defense_df.columns if c not in ("player_id", "season")]
+        merged = merged.merge(
+            defense_df[["player_id", "season"] + defense_cols],
             on=["player_id", "season"],
             how="left",
         )
@@ -432,6 +597,10 @@ def main():
     log.info("=== Φάση 1c: Hustle stats ===")
     hustle_df = fetch_all_hustle_stats(DATA_DIR / "seasons_hustle.csv")
 
+    # Φάση 1d: Defensive impact (skip αν υπάρχει)
+    log.info("=== Φάση 1d: Defensive impact ===")
+    defense_df = fetch_all_defense_stats(DATA_DIR / "seasons_defense.csv")
+
     # Φάση 2: Player info (skip αν υπάρχει)
     log.info("=== Φάση 2: Player info ===")
     player_ids = seasons_df["PLAYER_ID"].unique().tolist()
@@ -439,7 +608,7 @@ def main():
 
     # Merge όλων
     log.info("=== Merge ===")
-    final = build_final_dataset(seasons_df, info_df, scoring_df, hustle_df)
+    final = build_final_dataset(seasons_df, info_df, scoring_df, hustle_df, defense_df)
     out = DATA_DIR / "nba_stats_full.csv"
     final.to_csv(out, index=False)
 

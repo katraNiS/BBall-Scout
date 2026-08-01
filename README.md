@@ -82,6 +82,7 @@ backend τον _wrap-άρει_, δεν τον ξαναγράφει.
 - [x] API exploration — ξέρουμε ακριβώς τι fields δίνει το `nba_api`
 - [x] Archetype design: 18 primitives + 36 compound presets (`src/archetypes.py`· spec `ARCHETYPES.md`)
 - [x] Data pipeline — box/advanced + scoring (PCT_PTS_2PT_MR κ.α.) + hustle (deflections κ.α.)
+      + **defensive impact** (DFG% ανά zone: overall / 3PT / rim, από `LeagueDashPtDefend`, 2013-14+)
 - [x] `src/preprocessing.py` — normalization, tiered MPG filter, z-scores
 - [x] `src/archetypes.py` — trait signals + compound presets + classifier
 - [x] `src/similarity.py` — weighted L2 matching, trait boost, explanations
