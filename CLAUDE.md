@@ -34,7 +34,7 @@ stats + βάρη ανά stat + επιθυμητά traits — και το σύσ�
   Τα user-created δεδομένα (prospects, search history) είναι ξεχωριστά: JSON flat files
   σε resolved data dir (βλ. `backend/store.py` και ενότητα "Prospect & search history storage").
 - **ML/Math:** scikit-learn, pandas, numpy
-- **Data sources:** nba_api (Python lib) — box/advanced/scoring/hustle endpoints
+- **Data sources:** nba_api — box/advanced/scoring/hustle + LeagueDashPtDefend (DFG%)
 
 > Δεν υπάρχει PostgreSQL/SQLAlchemy στο παρόν στάδιο. Τα `db/` αρχεία είναι
 > legacy από πρώιμο design — αγνόησέ τα.
@@ -60,7 +60,7 @@ stats + βάρη ανά stat + επιθυμητά traits — και το σύσ�
 [ Data Layer ]        → nba_api endpoints → CSV
       ↓
 [ Processing Layer ]  → normalization, z-scores, tiered MPG filter        ┐
-      ↓                                                                    │ src/ (ΑΜΕΤΑΒΛΗΤΟ)
+      ↓                                                                    │ src/ = single source
 [ Archetype Layer ]   → 18 primitive traits → classifier → 36 compounds   │ = single source
       ↓                                                                    │   of matching logic
 [ Matching Engine ]   → weighted L2 distance + trait boost + explanations ┘
@@ -90,7 +90,7 @@ ProspectMatch/
 │   └── nba_stats_full.csv     ← merged dataset, 13987×67 (~8.3k rows μετά MPG filter· δεν είναι στο git)
 ├── pipeline/
 │   └── fetch_nba_data.py      ← 4-phase fetch: base+advanced / scoring / hustle / defense [DONE]
-├── src/                       ← ΑΜΕΤΑΒΛΗΤΟ core (το wrap-άρει ο backend)
+├── src/                       ← κοινός πυρήνας (ο backend το wrap-άρει, δεν το αλλάζει)
 │   ├── preprocessing.py       ← load/clean/normalize, FEATURE_COLS, preprocess() [DONE]
 │   ├── archetypes.py          ← 18 traits + signals + 36 compound presets + classify() [DONE]
 │   └── similarity.py          ← find_similar(), explain_match() [DONE]
@@ -124,7 +124,7 @@ ProspectMatch/
 │   ├── DEFENSE_IMPACT.md      ← generated defensive-matching snapshot
 │   ├── triage_archetypes.py   ← κατηγοριοποίηση misses: bug vs ground-truth [DONE]
 │   └── TRIAGE.md              ← generated triage snapshot
-├── tests/                     ← pytest suite (56 tests) [DONE]
+├── tests/                     ← pytest suite (64 tests) [DONE]
 │   ├── conftest.py            ← session-scoped fixtures· skip αν λείπει το dataset
 │   ├── test_defensive_features.py  ← data integrity: corrupt σεζόν, def_rating, metadata sync
 │   ├── test_defensive_matching.py  ← behaviour: era balance, discriminative power
@@ -217,13 +217,14 @@ misses του `versatile_wing_defender`) βγαίνει 2ος καλύτερος
 
 ## Preprocessing (`src/preprocessing.py`)
 
-**`FEATURE_COLS`** (21 features για similarity):
+**`FEATURE_COLS`** (23 features για similarity):
 ```
 pts, usg_pct, ts_pct, efg_pct,
 fg3a, fg3_pct, fta, ft_pct, pct_pts_2pt_mr,
 ast_pct, ast_to, tov,
 oreb_pct, dreb_pct,
 stl, blk, deflections, def_rating,
+d_fg3_diff, d_rim_diff,
 net_rating, height_cm, weight_lbs
 ```
 
@@ -448,9 +449,21 @@ prefill). Η καταγραφή είναι best-effort — μια αποτυχί
       Το `d_rim_diff` είναι ελαφρώς era-dependent (corr −0.128, λόγος 42%) — προσοχή αν μπει στα features.
       ⚠️ **Small-sample noise:** `std(d_ovr_diff)` πέφτει 0.076 → 0.037 με `d_ovr_fga ≥ 6`. Οι ακραίες
       τιμές (±0.674) προέρχονται από rows με ελάχιστα contested attempts — θα χρειαστεί volume filter.
-- [ ] **Ένταξη των `d_*_diff` στο engine** — το επόμενο βήμα: `FEATURE_COLS` + `avail_*` στήλες (το
-      availability-aware masking του Phase 9 τα χειρίζεται ήδη) + trait signals στο
-      `versatile_wing_defender`. Αλλάζει το feature space → re-run validation baseline + saved comps.
+- [x] **Ένταξη των `d_*_diff` στο engine** (Phase 11) — `FEATURE_COLS` 21 → **23**.
+      Επιλέχθηκαν `d_fg3_diff` + `d_rim_diff` γιατί είναι σχεδόν **ορθογώνια** (corr −0.01):
+      perimeter και rim defense είναι ξεχωριστά skills. Το `d_ovr_diff` **παραλείφθηκε** — είναι
+      μίγμα τους (0.44/0.60) και ήδη corr 0.43 με το `def_rating`.
+      Το volume πρόβλημα λύθηκε μόνο του: μετά το MPG filter το 100% έχει `d_ovr_fga ≥ 3` και το
+      std έπεσε 0.076 → 0.031, οπότε **δεν** χρειάστηκε volume filter.
+      `avail_*` tracking + group-median imputation, όπως τα hustle.
+      **Trait signal:** `d_fg3_diff` (weight −2.5) στο `point_of_attack_defender`, που είχε recall
+      1.00 αλλά precision 0.24 — άναβε για κάθε guard με steals. Το DFG% μετράει αποτέλεσμα και
+      κόβει τα FP: **F1 0.385 → 0.476** (+24% relative), macro-F1 **0.600 → 0.605**,
+      archetype top-1 **21/72 → 22/72**. Best-threshold macro-F1 0.622 → **0.639**.
+      **Μετρημένα ΑΡΝΗΤΙΚΑ αποτελέσματα** (δοκιμάστηκαν, δεν κρατήθηκαν): το `d_rim_diff` στον
+      `rim_protector` ρίχνει το F1 **0.800 → 0.710** (το `blk` το καλύπτει ήδη, και το 44% imputed
+      προσθέτει θόρυβο — ο classifier δεν έχει availability masking)· το `d_fg3_diff` στο
+      `versatile_wing_defender` είναι ουδέτερο ή −1 στο top-1.
 - [x] `src/preprocessing.py` — tiered MPG, NaN handling, z-scores
 - [x] `src/archetypes.py` — trait signals + compound presets + classifier + PRESET_POSITIONS
 - [x] `src/similarity.py` — weighted RMS matching + pct_cols output + explanations

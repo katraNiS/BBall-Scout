@@ -204,6 +204,46 @@ class TestDefensiveImpactColumns:
         r = abs(np.corrcoef(have["d_ovr_diff"], years)[0, 1])
         assert r < 0.10, f"corr(d_ovr_diff, year) = {r:.3f} — era leak"
 
+    def test_searchable_features_are_registered(self):
+        """
+        Τα δύο ορθογώνια (corr −0.01) μπήκαν στα FEATURE_COLS· το d_ovr_diff
+        ΟΧΙ, γιατί είναι μίγμα τους (0.44/0.60) και ήδη 0.43 με το def_rating.
+        """
+        from preprocessing import FEATURE_COLS
+
+        assert "d_fg3_diff" in FEATURE_COLS
+        assert "d_rim_diff" in FEATURE_COLS
+        assert "d_ovr_diff" not in FEATURE_COLS, "redundant — βλ. σχόλιο στο preprocessing"
+
+    def test_availability_is_tracked(self, clean_df):
+        """Χωρίς avail_*, ένα perimeter-defense query θα απέκλειε την pre-2013 εποχή."""
+        from preprocessing import FEATURE_COLS, build_availability_matrix
+
+        avail = build_availability_matrix(clean_df)
+        years = clean_df["season"].str[:4].astype(int).to_numpy()
+        for c in ("d_fg3_diff", "d_rim_diff"):
+            i = FEATURE_COLS.index(c)
+            assert not avail[years < 2013, i].any(), f"{c}: pre-2013 δεν πρέπει να είναι available"
+            assert avail[years >= 2014, i].mean() > 0.9, f"{c}: κενά μέσα στο tracking era"
+
+    def test_orthogonal_to_each_other(self, clean_df):
+        """Perimeter vs rim defense: ξεχωριστά skills. Αν συγχωνευτούν, ένα αρκεί."""
+        have = clean_df[clean_df["avail_d_fg3_diff"]]
+        r = abs(np.corrcoef(have["d_fg3_diff"], have["d_rim_diff"])[0, 1])
+        assert r < 0.25, f"|corr| = {r:.2f} — τα δύο features έγιναν redundant"
+
+    def test_point_of_attack_uses_matchup_defense(self):
+        """
+        Το trait είχε recall 1.00 / precision 0.24 — άναβε για κάθε guard με
+        steals. Το d_fg3_diff μετράει αποτέλεσμα και κόβει τα false positives
+        (F1 0.385 → 0.476).
+        """
+        import archetypes
+
+        sigs = {s.col: s.weight for s in
+                archetypes.TRAITS["point_of_attack_defender"].signals}
+        assert sigs.get("d_fg3_diff", 0) < 0, "αρνητικό weight: χαμηλό = καλή άμυνα"
+
     def test_negative_means_good_defense(self, raw_df):
         """
         Sanity της κατεύθυνσης: το `_diff` = DFG% − baseline, οπότε πρέπει να

@@ -23,6 +23,15 @@ MIN_MPG = 10.0   # για 2013-14+ · παλαιότερες σεζόν: 20 MPG 
 # Hustle/tracking columns — διαθέσιμα μόνο από το LeagueHustleStatsPlayer endpoint.
 HUSTLE_COLS = ("deflections", "charges_drawn", "box_outs", "screen_assists")
 
+# Matchup-based defensive impact (LeagueDashPtDefend, Phase 1d) — διαθέσιμα από
+# 2013-14. Ίδιο coverage pattern με τα hustle: group-median imputation + avail_*
+# tracking, ώστε το availability-aware masking να τα χειριστεί σωστά.
+DEFENSE_COLS = (
+    "d_ovr_fga", "d_ovr_pct", "d_ovr_base", "d_ovr_diff",
+    "d_fg3_fga", "d_fg3_pct", "d_fg3_base", "d_fg3_diff",
+    "d_rim_fga", "d_rim_pct", "d_rim_base", "d_rim_diff",
+)
+
 # Σεζόν με αναξιόπιστα hustle data, που ΔΕΝ πρέπει να μπουν στο feature space.
 #
 # Το 2015-16 είναι η σεζόν που το NBA πρωτοξεκίνησε hustle tracking, mid-season:
@@ -85,6 +94,21 @@ FEATURE_COLS = [
     # δηλαδή σχεδόν εξ ολοκλήρου νέα πληροφορία.
     # ΠΡΟΣΟΧΗ: χαμηλό = καλή άμυνα (αντίθετη κατεύθυνση από τα υπόλοιπα features).
     "def_rating",
+    # Matchup-based defensive impact (Phase 1d): πόσο ΧΕΙΡΟΤΕΡΑ σουτάρουν οι
+    # αντίπαλοι όταν αυτός είναι ο κοντινότερος defender, vs τον κανονικό τους
+    # μέσο όρο. Αρνητικό = καλή άμυνα.
+    #
+    # Γιατί αυτά τα δύο και όχι το d_ovr_diff: είναι σχεδόν ΟΡΘΟΓΩΝΙΑ μεταξύ
+    # τους (corr −0.01) — perimeter και rim defense είναι ξεχωριστά skills, που
+    # ταιριάζουν σε διαφορετικά traits. Το d_ovr_diff είναι μίγμα τους (0.44 /
+    # 0.60) και έχει ήδη corr 0.43 με το def_rating, άρα προσθέτει λίγα.
+    #
+    # Γιατί αξίζουν παρά το deflections: μετρούν ΑΠΟΤΕΛΕΣΜΑ, όχι στυλ.
+    # corr(deflections, d_ovr_diff) = +0.017 — ουσιαστικά νέα πληροφορία.
+    # Era-stable χωρίς centering (corr με σεζόν −0.009), σε αντίθεση με το
+    # def_rating, γιατί το _diff είναι ήδη baseline-adjusted.
+    "d_fg3_diff",   # perimeter defense
+    "d_rim_diff",   # rim protection — corr −0.52 με blk· blocks ≠ deterrence
     # Overall impact (team-dependent αλλά adds signal)
     "net_rating",
     # Physical
@@ -151,6 +175,17 @@ def load_and_clean(path: Path = DATASET_PATH) -> pd.DataFrame:
         df[f"{AVAIL_PREFIX}{col}"] = df[col].notna()
 
     for col in hustle_like:
+        group_medians = df.groupby("position_group")[col].transform("median")
+        df[col] = df[col].fillna(group_medians).fillna(df[col].median())
+
+    # Defensive impact (Phase 1d): ίδιο pattern — avail_* πριν το fillna.
+    # Λείπουν πριν το 2013-14, οπότε χωρίς availability tracking ένα query που
+    # ζητά «καλή perimeter άμυνα» θα απέκλειε de facto όλη την pre-tracking εποχή
+    # (το ίδιο bug που διορθώθηκε στο Phase 9 για τα hustle stats).
+    defense_like = [c for c in DEFENSE_COLS if c in df.columns]
+    for col in defense_like:
+        df[f"{AVAIL_PREFIX}{col}"] = df[col].notna()
+    for col in defense_like:
         group_medians = df.groupby("position_group")[col].transform("median")
         df[col] = df[col].fillna(group_medians).fillna(df[col].median())
 

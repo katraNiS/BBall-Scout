@@ -1,6 +1,6 @@
 # Defensive Matching — Impact Report
 
-- Rows: **8382** | features: **21**
+- Rows: **8382** | features: **23**
 - Pre-tracking (<2016) share of dataset: **57.7%** — ένα αμερόληπτο query πρέπει να πλησιάζει αυτό το ποσοστό
 - Max deflections: **5.89**/gm (NBA record ≈ 5.9· τιμές >6.5 σημαίνουν totals-scaled corruption)
 

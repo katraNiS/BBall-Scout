@@ -204,11 +204,20 @@ TRAITS: dict[str, Trait] = {
         positions=["G", "G-F"],
         signals=[
             Signal("stl",         weight=2.0),
-            Signal("deflections", weight=2.0),   # νέο: direct δείκτης ball pressure (2015-16+)
+            Signal("deflections", weight=2.0),   # direct δείκτης ball pressure (2016-17+)
             Signal("def_rating",  weight=-1.5),  # χαμηλό = καλή άμυνα
             Signal("usg_pct",     weight=-0.5),
+            # Matchup-based perimeter defense (Phase 1d): πόσο χειρότερα σουτάρουν
+            # οι αντίπαλοι από το 3ποντο όταν τους φυλάει. Αρνητικό = καλή άμυνα.
+            #
+            # Το trait είχε recall 1.00 αλλά precision 0.24 — άναβε για σχεδόν
+            # κάθε guard με πολλά steals. Το d_fg3_diff μετράει ΑΠΟΤΕΛΕΣΜΑ και
+            # κόβει τα false positives: precision 0.24 → 0.31, F1 0.385 → 0.476
+            # (+24% relative), macro-F1 0.600 → 0.605, top-1 21/72 → 22/72.
+            # Το -2.5 είναι σημείο κορεσμού (το -3.0 δίνει ίδιο αποτέλεσμα).
+            Signal("d_fg3_diff",  weight=-2.5),
         ],
-        fine=True,  # def_rating team stat · deflections μόνο από 2015-16
+        fine=True,  # def_rating team stat · tracking signals μόνο από 2013-14/2016-17
     ),
 
     "versatile_wing_defender": Trait(

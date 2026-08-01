@@ -12,11 +12,11 @@ Threshold: **0.6** · dataset rows: **8382** · labels: **72**
 |---|---|---|
 | `Two-Way Wing` | 10 | `Two-Way Slashing Star`, `Point Forward` |
 | `3-and-D Wing` | 21 | `Two-Way Sharpshooter`, `Connector / Glue Wing`, `Stretch Four / Combo Forward` |
-| `Defensive Playmaker` | 64 | `Two-Way Lead Guard` |
-| `Sharpshooter` | 113 | `Two-Way Sharpshooter` |
-| `Pure Shooter` | 124 | `Sharpshooter`, `Two-Way Sharpshooter` |
+| `Defensive Playmaker` | 44 | `Two-Way Lead Guard` |
+| `Sharpshooter` | 118 | `Two-Way Sharpshooter` |
+| `Pure Shooter` | 123 | `Sharpshooter`, `Two-Way Sharpshooter` |
 | `Putback Finisher` | 130 | `Energy Big` |
-| `Slashing Guard` | 138 | `Bucket-Getter`, `Two-Way Slashing Star`, `All-Around Forward` |
+| `Slashing Guard` | 142 | `Bucket-Getter`, `Two-Way Slashing Star`, `All-Around Forward` |
 | `Shooting Stretch Big` | 159 | `Stretch Four / Combo Forward` |
 | `Pure Defensive Center` | 171 | `Rim-Running Anchor` |
 | `Instant Offense` | 189 | `Bucket-Getter`, `Wing Scorer` |
@@ -24,30 +24,29 @@ Threshold: **0.6** · dataset rows: **8382** · labels: **72**
 
 > Κανένα preset δεν είναι εντελώς απρόσιτο.
 
-## 2. Triage των 51 misses
+## 2. Triage των 50 misses
 
 | Κατηγορία | Πλήθος | Είδος δουλειάς |
 |---|---|---|
-| A. ΛΕΙΠΕΙ TRAIT | 31 | τεχνικό |
+| A. ΛΕΙΠΕΙ TRAIT | 30 | τεχνικό |
 | B. ΠΙΟ ΣΥΓΚΕΚΡΙΜΕΝΟ LABEL | 2 | **ground truth** |
 | C. ΛΙΓΟΤΕΡΟ ΣΥΓΚΕΚΡΙΜΕΝΟ | 3 | τεχνικό |
 | D. POSITION MISMATCH | 0 | design |
 | E. ΑΛΛΟΣ ΚΛΑΔΟΣ | 15 | ανά περίπτωση |
 
-### A. ΛΕΙΠΕΙ TRAIT — τεχνικό, ΔΙΟΡΘΩΣΙΜΟ  (31)
+### A. ΛΕΙΠΕΙ TRAIT — τεχνικό, ΔΙΟΡΘΩΣΙΜΟ  (30)
 
 _Ο classifier δεν άναψε trait που το expected preset απαιτεί. Δούλεψε στα signals του trait, όχι στο ground truth._
 
 | Παίκτης | Θέση | Expected | Got | Λείπουν traits |
 |---|---|---|---|---|
 | Luka Doncic | G-F | `Scoring Lead Guard` | `Two-Way Lead Guard` | midrange_scorer |
-| LaMelo Ball | G | `Scoring Lead Guard` | `Two-Way Lead Guard` | midrange_scorer |
+| LaMelo Ball | G | `Scoring Lead Guard` | `Floor General` | midrange_scorer |
 | Cade Cunningham | G | `Scoring Lead Guard` | `Floor General` | midrange_scorer |
 | Jrue Holiday | G | `Two-Way Lead Guard` | `Pure Point Guard` | on_ball_creator |
 | Donovan Mitchell | G | `Bucket-Getter` | `Two-Way Lead Guard` | slasher |
 | De'Aaron Fox | G | `Slashing Guard` | `Two-Way Lead Guard` | slasher |
 | Marcus Smart | G | `3-and-D Guard` | `Defensive Playmaker` | spot_up_shooter |
-| Stephen Curry | G | `Sharpshooter` | `Two-Way Lead Guard` | efficient_finisher |
 | Damian Lillard | G | `Sharpshooter` | `Two-Way Lead Guard` | efficient_finisher |
 | Jaylen Brown | G-F | `Two-Way Slashing Star` | `Instant Offense` | slasher, versatile_wing_defender |
 | Anthony Edwards | G | `Two-Way Slashing Star` | `Instant Offense` | slasher _(structural: versatile_wing_defender)_ |
@@ -128,7 +127,7 @@ _Καμία subset σχέση· ο classifier πήγε σε τελείως άλ�
 |---|---|
 | `versatile_wing_defender` | 10 |
 | `slasher` | 8 |
-| `efficient_finisher` | 7 |
+| `efficient_finisher` | 6 |
 | `midrange_scorer` | 4 |
 | `spot_up_shooter` | 4 |
 | `post_scorer` | 3 |

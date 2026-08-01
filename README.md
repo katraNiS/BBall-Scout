@@ -45,8 +45,8 @@ nba_api  →  pipeline/fetch_nba_data.py  →  data/nba_stats_full.csv
 
 Το **desktop app** (Electron + FastAPI + React) είναι η κύρια κατεύθυνση· το Streamlit
 UI παραμένει λειτουργικό και καταναλώνει το `src/` απευθείας. Ο πυρήνας `src/`
-(preprocessing/archetypes/similarity) είναι κοινός και **αμετάβλητος** — ο FastAPI
-backend τον _wrap-άρει_, δεν τον ξαναγράφει.
+(preprocessing/archetypes/similarity) είναι **κοινός** — ο FastAPI backend τον
+_wrap-άρει_, δεν τον ξαναγράφει· αλλάζει μόνο με μετρημένη αιτιολόγηση και test.
 
 **Compositional archetypes:** αντί για ~10 fixed κουτιά, ορίζουμε **18 primitive traits** (π.χ. `slasher`, `rim_protector`, `lead_playmaker`) που συνδυάζονται αυτόματα σε **36 σύνθετα archetypes** (π.χ. `playmaking_big` + `rim_protector` + `help_defender` = "Playmaking Rim Protector"). Ο ίδιος feature space χρησιμοποιείται και για το matching.
 
@@ -66,7 +66,7 @@ backend τον _wrap-άρει_, δεν τον ξαναγράφει.
 | Desktop shell | Electron + electron-builder |
 | Legacy UI | Streamlit (`app/streamlit_app.py`) |
 | Data storage | CSV flat file (`data/nba_stats_full.csv`) |
-| Data sources | nba_api (box + advanced + scoring + hustle), Kaggle (wingspan) |
+| Data sources | nba_api (box + advanced + scoring + hustle + matchup defense) |
 | ML / Math | scikit-learn, pandas, numpy |
 
 > Δεν χρησιμοποιούμε βάση δεδομένων στο παρόν στάδιο — το CSV είναι αρκετό.
@@ -115,13 +115,17 @@ backend τον _wrap-άρει_, δεν τον ξαναγράφει.
       ανά παίκτη, με confidence discount ώστε τα ελλιπή rows να μην εκτοπίζουν όσα έχουν πλήρη δεδομένα.
       Defensive queries: **0% → 54.7%** pre-2016 representation (baseline 57.7%), με μηδενικό regression
       στα offensive. Το UI δείχνει badge «N% data» όπου το match κρίθηκε σε λιγότερα stats.
-- [x] **Test suite** (`tests/`) — 56 pytest tests: data integrity, era balance, discriminative power,
+- [x] **Test suite** (`tests/`) — 64 pytest tests: data integrity, era balance, discriminative power,
       threshold usability, preset reachability, metadata συνέπεια
 - [x] **Archetype triage** (`validation/triage_archetypes.py`) — κατηγοριοποιεί τα misclassifications ώστε
       να ξεχωρίζει τι είναι τεχνικό bug και τι απόφαση ground truth. Οδήγησε σε δύο διορθώσεις: το
       `versatile_wing_defender` ανταμείβε το *μέγεθος* (6/8 false positives ήταν centers) → precision
       0.529 → 0.692· και το preset "3-and-D Wing" ήταν δομικά απρόσιτο (0 χρήσεις σε 8382 rows) επειδή
       έχανε σε ισοπαλία από το "3-and-D Guard" → 21 G-F wings έπαιρναν λάθος "Guard" label
+- [x] **Matchup-based defensive impact στο engine** — τα `d_fg3_diff` (perimeter) και `d_rim_diff` (rim)
+      μπήκαν στα `FEATURE_COLS`: ο χρήστης μπορεί πλέον να ζητήσει «καλή περιφερειακή άμυνα» ή
+      «rim protection» με βάση το τι σουτάρουν οι αντίπαλοι, όχι το στυλ του αμυντικού.
+      Στον classifier: `point_of_attack_defender` F1 0.385 → 0.476, archetype top-1 21/72 → 22/72
 - [ ] Classifier tuning: archetype top-1 accuracy (ξεχωριστό, πιο δύσκολο πρόβλημα — βλ. `CLAUDE.md`).
       Τεκμηριωμένο όριο: η *versatile wing defense* δεν είναι μετρήσιμη από τα διαθέσιμα stats — το
       `deflections` μετράει στυλ (ball-hawking), όχι ποιότητα άμυνας
@@ -157,7 +161,7 @@ ProspectMatch/
 │   ├── tune_threshold.py      ← per-trait P/R/F1 + threshold sweep → REPORT.md  [DONE]
 │   ├── defense_impact.py      ← era balance / corrupt rows / def_rating → DEFENSE_IMPACT.md  [DONE]
 │   └── triage_archetypes.py   ← misses: bug vs ground truth → TRIAGE.md  [DONE]
-├── tests/                     ← pytest suite (56 tests)  [DONE]
+├── tests/                     ← pytest suite (64 tests)  [DONE]
 └── app/
     └── streamlit_app.py       ← Streamlit UI (legacy, λειτουργικό)  [DONE]
 ```

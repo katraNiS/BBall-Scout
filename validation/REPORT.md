@@ -1,8 +1,8 @@
 # Classifier Validation Report
 
 - Labeled players resolved: **72/72**
-- Current threshold (src): **0.6** — macro-F1 **0.600**, archetype top-1 **21/72 (0.292)**
-- Best global threshold (macro-F1): **0.9** — macro-F1 **0.622**, archetype top-1 **20/72 (0.278)**
+- Current threshold (src): **0.6** — macro-F1 **0.605**, archetype top-1 **22/72 (0.306)**
+- Best global threshold (macro-F1): **0.9** — macro-F1 **0.639**, archetype top-1 **21/72 (0.292)**
 
 ## Per-trait metrics @ threshold 0.6 (worst F1 first)
 
@@ -10,9 +10,9 @@
 |---|---|---|---|---|---|
 | help_defender | 0.250 | 0.600 | 0.353 | 5 | 0.9 (0.429) |
 | slasher | 0.400 | 0.333 | 0.364 | 12 | 0.4 (0.581) |
-| point_of_attack_defender | 0.238 | 1.000 | 0.385 | 5 | 0.95 (0.421) |
 | efficient_finisher | 0.385 | 0.417 | 0.400 | 12 | 0.8 (0.588) |
 | midrange_scorer | 0.667 | 0.333 | 0.444 | 6 | 0.3 (0.600) |
+| point_of_attack_defender | 0.312 | 1.000 | 0.476 | 5 | 0.9 (0.714) |
 | connective_passer | 0.333 | 1.000 | 0.500 | 4 | 0.5 (0.500) |
 | versatile_wing_defender | 0.692 | 0.450 | 0.545 | 20 | 0.3 (0.684) |
 | movement_shooter | 0.458 | 0.917 | 0.611 | 12 | 0.9 (0.625) |
@@ -36,20 +36,20 @@ Unclassified, οπότε το macro-F1 από μόνο του **δεν βλέπ�
 
 | Threshold | Macro-F1 | Archetype top-1 | Traits/row | Unclassified | Fallback | Presets |
 |---|---|---|---|---|---|---|
-| 0.3 | 0.559 | 13/72 (0.181) | 4.09 | 4.5% | 18.3% | 36 |
-| 0.35 | 0.561 | 13/72 (0.181) | 3.82 | 5.8% | 20.6% | 36 |
-| 0.4 | 0.568 | 14/72 (0.194) | 3.56 | 7.1% | 22.7% | 36 |
-| 0.45 | 0.573 | 15/72 (0.208) | 3.32 | 8.8% | 24.3% | 36 |
-| 0.5 | 0.584 | 18/72 (0.250) | 3.08 | 10.5% | 26.4% | 36 |
-| 0.55 | 0.593 | 18/72 (0.250) | 2.86 | 12.6% | 28.2% | 36 |
-| 0.6 ⬅ current | 0.600 | 21/72 (0.292) | 2.65 | 15.0% | 29.0% | 36 |
-| 0.65 | 0.604 | 20/72 (0.278) | 2.45 | 17.6% | 30.1% | 35 |
-| 0.7 | 0.609 | 20/72 (0.278) | 2.26 | 20.4% | 30.8% | 35 |
-| 0.75 | 0.616 | 20/72 (0.278) | 2.10 | 23.2% | 31.5% | 34 |
-| 0.8 | 0.619 | 20/72 (0.278) | 1.94 | 26.0% | 31.8% | 33 |
-| 0.85 | 0.618 | 20/72 (0.278) | 1.78 | 29.0% | 31.8% | 32 |
-| 0.9 ⬅ best F1 | 0.622 | 20/72 (0.278) | 1.64 | 31.8% | 31.8% | 31 |
-| 0.95 | 0.621 | 18/72 (0.250) | 1.51 | 35.2% | 31.4% | 31 |
+| 0.3 | 0.560 | 14/72 (0.194) | 4.07 | 4.4% | 18.5% | 36 |
+| 0.35 | 0.563 | 14/72 (0.194) | 3.80 | 5.7% | 20.8% | 36 |
+| 0.4 | 0.571 | 15/72 (0.208) | 3.54 | 7.0% | 23.0% | 36 |
+| 0.45 | 0.576 | 16/72 (0.222) | 3.29 | 8.6% | 24.7% | 36 |
+| 0.5 | 0.585 | 19/72 (0.264) | 3.05 | 10.5% | 26.7% | 36 |
+| 0.55 | 0.597 | 19/72 (0.264) | 2.84 | 12.6% | 28.5% | 36 |
+| 0.6 ⬅ current | 0.605 | 22/72 (0.306) | 2.62 | 15.0% | 29.3% | 36 |
+| 0.65 | 0.609 | 20/72 (0.278) | 2.43 | 17.7% | 30.3% | 35 |
+| 0.7 | 0.616 | 20/72 (0.278) | 2.24 | 20.6% | 30.9% | 36 |
+| 0.75 | 0.627 | 20/72 (0.278) | 2.07 | 23.5% | 31.5% | 34 |
+| 0.8 | 0.631 | 21/72 (0.292) | 1.91 | 26.4% | 31.8% | 33 |
+| 0.85 | 0.632 | 21/72 (0.292) | 1.76 | 29.4% | 31.6% | 32 |
+| 0.9 ⬅ best F1 | 0.639 | 21/72 (0.292) | 1.62 | 32.3% | 31.7% | 31 |
+| 0.95 | 0.635 | 19/72 (0.264) | 1.50 | 35.6% | 31.3% | 31 |
 
 ## Structural misses @ 0.6 — expected trait είναι position-ineligible (5)
 
@@ -61,11 +61,11 @@ _Δεν διορθώνονται με threshold tuning — είναι θέμα t
 - **LeBron James** — expected `lead_playmaker` (μη eligible για τη θέση του)
 - **Josh Hart** — expected `versatile_wing_defender` (μη eligible για τη θέση του)
 
-## Archetype misclassifications @ 0.6 (51/72)
+## Archetype misclassifications @ 0.6 (50/72)
 
 - **Tyrese Haliburton**: expected `Floor General` → got `Two-Way Lead Guard`
 - **Luka Doncic**: expected `Scoring Lead Guard` → got `Two-Way Lead Guard`
-- **LaMelo Ball**: expected `Scoring Lead Guard` → got `Two-Way Lead Guard`
+- **LaMelo Ball**: expected `Scoring Lead Guard` → got `Floor General`
 - **Cade Cunningham**: expected `Scoring Lead Guard` → got `Floor General`
 - **Jrue Holiday**: expected `Two-Way Lead Guard` → got `Pure Point Guard`
 - **Donovan Mitchell**: expected `Bucket-Getter` → got `Two-Way Lead Guard`
@@ -76,7 +76,6 @@ _Δεν διορθώνονται με threshold tuning — είναι θέμα t
 - **De'Aaron Fox**: expected `Slashing Guard` → got `Two-Way Lead Guard`
 - **Derrick White**: expected `3-and-D Guard` → got `Sharpshooter`
 - **Marcus Smart**: expected `3-and-D Guard` → got `Defensive Playmaker`
-- **Stephen Curry**: expected `Sharpshooter` → got `Two-Way Lead Guard`
 - **Klay Thompson**: expected `Sharpshooter` → got `Pure Shooter`
 - **Damian Lillard**: expected `Sharpshooter` → got `Two-Way Lead Guard`
 - **Jayson Tatum**: expected `Two-Way Wing` → got `Two-Way Lead Guard`
