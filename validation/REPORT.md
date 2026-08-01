@@ -1,8 +1,8 @@
 # Classifier Validation Report
 
 - Labeled players resolved: **72/72**
-- Current threshold (src): **0.6** — macro-F1 **0.597**, archetype top-1 **20/72 (0.278)**
-- Best global threshold (macro-F1): **0.9** — macro-F1 **0.623**, archetype top-1 **20/72 (0.278)**
+- Current threshold (src): **0.6** — macro-F1 **0.600**, archetype top-1 **21/72 (0.292)**
+- Best global threshold (macro-F1): **0.9** — macro-F1 **0.622**, archetype top-1 **20/72 (0.278)**
 
 ## Per-trait metrics @ threshold 0.6 (worst F1 first)
 
@@ -13,8 +13,8 @@
 | point_of_attack_defender | 0.238 | 1.000 | 0.385 | 5 | 0.95 (0.421) |
 | efficient_finisher | 0.385 | 0.417 | 0.400 | 12 | 0.8 (0.588) |
 | midrange_scorer | 0.667 | 0.333 | 0.444 | 6 | 0.3 (0.600) |
-| versatile_wing_defender | 0.529 | 0.450 | 0.486 | 20 | 0.4 (0.558) |
 | connective_passer | 0.333 | 1.000 | 0.500 | 4 | 0.5 (0.500) |
+| versatile_wing_defender | 0.692 | 0.450 | 0.545 | 20 | 0.3 (0.684) |
 | movement_shooter | 0.458 | 0.917 | 0.611 | 12 | 0.9 (0.625) |
 | post_scorer | 0.667 | 0.571 | 0.615 | 7 | 0.75 (0.727) |
 | spot_up_shooter | 0.556 | 0.714 | 0.625 | 14 | 0.8 (0.667) |
@@ -36,20 +36,20 @@ Unclassified, οπότε το macro-F1 από μόνο του **δεν βλέπ�
 
 | Threshold | Macro-F1 | Archetype top-1 | Traits/row | Unclassified | Fallback | Presets |
 |---|---|---|---|---|---|---|
-| 0.3 | 0.551 | 12/72 (0.167) | 4.12 | 4.6% | 18.3% | 35 |
-| 0.35 | 0.559 | 13/72 (0.181) | 3.85 | 5.8% | 20.5% | 35 |
-| 0.4 | 0.567 | 14/72 (0.194) | 3.58 | 7.2% | 22.6% | 36 |
-| 0.45 | 0.569 | 15/72 (0.208) | 3.34 | 8.8% | 24.2% | 35 |
-| 0.5 | 0.582 | 17/72 (0.236) | 3.10 | 10.6% | 26.3% | 35 |
-| 0.55 | 0.589 | 16/72 (0.222) | 2.88 | 12.7% | 28.1% | 35 |
-| 0.6 ⬅ current | 0.597 | 20/72 (0.278) | 2.66 | 15.0% | 28.9% | 35 |
-| 0.65 | 0.604 | 19/72 (0.264) | 2.46 | 17.6% | 30.0% | 34 |
-| 0.7 | 0.608 | 18/72 (0.250) | 2.28 | 20.4% | 30.7% | 35 |
-| 0.75 | 0.618 | 18/72 (0.250) | 2.11 | 23.2% | 31.4% | 35 |
-| 0.8 | 0.621 | 18/72 (0.250) | 1.95 | 26.0% | 31.8% | 33 |
-| 0.85 | 0.619 | 20/72 (0.278) | 1.79 | 29.0% | 31.8% | 32 |
-| 0.9 ⬅ best F1 | 0.623 | 20/72 (0.278) | 1.65 | 31.8% | 31.8% | 31 |
-| 0.95 | 0.622 | 19/72 (0.264) | 1.52 | 35.2% | 31.3% | 31 |
+| 0.3 | 0.559 | 13/72 (0.181) | 4.09 | 4.5% | 18.3% | 36 |
+| 0.35 | 0.561 | 13/72 (0.181) | 3.82 | 5.8% | 20.6% | 36 |
+| 0.4 | 0.568 | 14/72 (0.194) | 3.56 | 7.1% | 22.7% | 36 |
+| 0.45 | 0.573 | 15/72 (0.208) | 3.32 | 8.8% | 24.3% | 36 |
+| 0.5 | 0.584 | 18/72 (0.250) | 3.08 | 10.5% | 26.4% | 36 |
+| 0.55 | 0.593 | 18/72 (0.250) | 2.86 | 12.6% | 28.2% | 36 |
+| 0.6 ⬅ current | 0.600 | 21/72 (0.292) | 2.65 | 15.0% | 29.0% | 36 |
+| 0.65 | 0.604 | 20/72 (0.278) | 2.45 | 17.6% | 30.1% | 35 |
+| 0.7 | 0.609 | 20/72 (0.278) | 2.26 | 20.4% | 30.8% | 35 |
+| 0.75 | 0.616 | 20/72 (0.278) | 2.10 | 23.2% | 31.5% | 34 |
+| 0.8 | 0.619 | 20/72 (0.278) | 1.94 | 26.0% | 31.8% | 33 |
+| 0.85 | 0.618 | 20/72 (0.278) | 1.78 | 29.0% | 31.8% | 32 |
+| 0.9 ⬅ best F1 | 0.622 | 20/72 (0.278) | 1.64 | 31.8% | 31.8% | 31 |
+| 0.95 | 0.621 | 18/72 (0.250) | 1.51 | 35.2% | 31.4% | 31 |
 
 ## Structural misses @ 0.6 — expected trait είναι position-ineligible (5)
 
@@ -61,7 +61,7 @@ _Δεν διορθώνονται με threshold tuning — είναι θέμα t
 - **LeBron James** — expected `lead_playmaker` (μη eligible για τη θέση του)
 - **Josh Hart** — expected `versatile_wing_defender` (μη eligible για τη θέση του)
 
-## Archetype misclassifications @ 0.6 (52/72)
+## Archetype misclassifications @ 0.6 (51/72)
 
 - **Tyrese Haliburton**: expected `Floor General` → got `Two-Way Lead Guard`
 - **Luka Doncic**: expected `Scoring Lead Guard` → got `Two-Way Lead Guard`
@@ -88,7 +88,7 @@ _Δεν διορθώνονται με threshold tuning — είναι θέμα t
 - **Brandon Ingram**: expected `Wing Scorer` → got `All-Around Forward`
 - **Mikal Bridges**: expected `3-and-D Wing` → got `Sharpshooter`
 - **Herbert Jones**: expected `3-and-D Wing` → got `Helping Wing Defender`
-- **Jaden McDaniels**: expected `3-and-D Wing` → got `Helping Wing Defender`
+- **Jaden McDaniels**: expected `3-and-D Wing` → got `Two-Way Help Defender`
 - **Scottie Barnes**: expected `Point Forward` → got `Two-Way Lead Guard`
 - **Josh Hart**: expected `Connector / Glue Wing` → got `Pure Point Guard`
 - **Royce O'Neale**: expected `Connector / Glue Wing` → got `Stretch Big`
@@ -96,8 +96,7 @@ _Δεν διορθώνονται με threshold tuning — είναι θέμα t
 - **Andrew Wiggins**: expected `Athletic Finisher Wing` → got `Shooting Stretch Big`
 - **Domantas Sabonis**: expected `Point Center` → got `All-Around Forward`
 - **Alperen Sengun**: expected `Point Center` → got `Playmaking Rim Protector`
-- **Joel Embiid**: expected `Two-Way Scoring Big` → got `Versatile Swiss-Army Big`
-- **Karl-Anthony Towns**: expected `Stretch Big` → got `Athletic Finisher Wing`
+- **Joel Embiid**: expected `Two-Way Scoring Big` → got `Point Center`
 - **Lauri Markkanen**: expected `Stretch Big` → got `Shooting Stretch Big`
 - **Brook Lopez**: expected `Stretch Rim Protector` → got `Stretch Big`
 - **Jaren Jackson Jr.**: expected `Stretch Rim Protector` → got `Modern Two-Way Forward`
@@ -106,7 +105,7 @@ _Δεν διορθώνονται με threshold tuning — είναι θέμα t
 - **Mitchell Robinson**: expected `Pure Defensive Center` → got `Rim-Running Anchor`
 - **Al Horford**: expected `Versatile Swiss-Army Big` → got `Shooting Stretch Big`
 - **Steven Adams**: expected `Energy Big` → got `Rim-Running Anchor`
-- **Isaiah Hartenstein**: expected `Energy Big` → got `Athletic Finisher Wing`
+- **Isaiah Hartenstein**: expected `Energy Big` → got `Rim-Running Anchor`
 - **Nic Claxton**: expected `Energy Big` → got `Rim-Running Anchor`
 - **Jonas Valanciunas**: expected `Throwback Post Hub` → got `Glass Cleaner`
 - **Nikola Vucevic**: expected `Throwback Post Hub` → got `Stretch Big`

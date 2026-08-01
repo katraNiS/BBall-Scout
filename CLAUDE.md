@@ -121,11 +121,14 @@ ProspectMatch/
 │   ├── tune_threshold.py      ← score once → sweep threshold → REPORT.md
 │   ├── REPORT.md              ← generated metrics snapshot
 │   ├── defense_impact.py      ← era balance / corrupt-season / def_rating impact [DONE]
-│   └── DEFENSE_IMPACT.md      ← generated defensive-matching snapshot
-├── tests/                     ← pytest suite [DONE]
+│   ├── DEFENSE_IMPACT.md      ← generated defensive-matching snapshot
+│   ├── triage_archetypes.py   ← κατηγοριοποίηση misses: bug vs ground-truth [DONE]
+│   └── TRIAGE.md              ← generated triage snapshot
+├── tests/                     ← pytest suite (56 tests) [DONE]
 │   ├── conftest.py            ← session-scoped fixtures· skip αν λείπει το dataset
 │   ├── test_defensive_features.py  ← data integrity: corrupt σεζόν, def_rating, metadata sync
-│   └── test_defensive_matching.py  ← behaviour: era balance, discriminative power
+│   ├── test_defensive_matching.py  ← behaviour: era balance, discriminative power
+│   └── test_archetype_presets.py   ← preset reachability + signal directions
 └── app/
     └── streamlit_app.py       ← Streamlit UI (legacy, λειτουργικό) [DONE]
 ```
@@ -136,6 +139,9 @@ python validation/tune_threshold.py
 ```
 ```bash
 python validation/defense_impact.py
+```
+```bash
+python validation/triage_archetypes.py
 ```
 ```bash
 python -m pytest tests/ -q
@@ -260,6 +266,14 @@ mean (`def_rating - season_mean + global_mean`), το οποίο:
 ### Dict ordering για τριτεύον tie-breaking
 Αν `(pos_ok, trait_count)` ισοπαλούν, κερδίζει το preset που εμφανίζεται **πρώτο** στο dict.
 Π.χ. "Point Center" πριν "All-Around Forward" ώστε ο Giannis/Embiid → Point Center.
+
+⚠️ Η σειρά μπορεί να κάνει ένα preset **δομικά απρόσιτο**. Το "3-and-D Wing" και
+το "3-and-D Guard" έχουν και τα δύο 2 traits· με το Guard πρώτο, το Wing δεν
+εμφανιζόταν **ΠΟΤΕ** (0/8382 rows) και 21 G-F wings (Majerle, Sefolosha, Ingles,
+Eddie Jones) έπαιρναν λανθασμένα "Guard" label. Καμία μετρική ακρίβειας δεν το
+έπιανε — γι' αυτό υπάρχει πλέον `tests/test_archetype_presets.py` που απαιτεί
+**κάθε** preset να εμφανίζεται ≥1 φορά, και το `validation/triage_archetypes.py`
+που τυπώνει όλες τις subset σχέσεις.
 
 ### Παραδείγματα (validation):
 - Curry → Floor General / Two-Way Lead Guard ✓
@@ -449,10 +463,26 @@ prefill). Η καταγραφή είναι best-effort — μια αποτυχί
       Το `tune_threshold.py` τυπώνει πλέον και τις usability στήλες ώστε η απόφαση να μην ξαναγίνει
       στα τυφλά. Τα per-trait βέλτιστα συγκρούονται (0.4 έως 0.95) — per-trait thresholds θα ήταν
       overfitting σε support 4-5 παικτών.
-- [ ] Classifier tuning — archetype top-1 accuracy (20/72 @ 0.6): το per-trait precision/recall βελτιώθηκε
-      δραματικά, αλλά η ταυτοποίηση **compound label** παραμένει δύσκολη για πολυδιάστατα stars — συχνά
-      το δεύτερο preset είναι εξίσου υποστηρίξιμο (π.χ. Sabonis: "Point Center" vs "All-Around Forward").
-      Requires careful, per-case validation πριν αγγίξει κανείς weights/dict-ordering — βλ. §5 "Unicorns".
+- [x] **Archetype triage + δύο design fixes** (Phase 10) — το `validation/triage_archetypes.py`
+      κατηγοριοποιεί τα misses ώστε να ξεχωρίζει η **τεχνική** δουλειά από την **απόφαση ground truth**.
+      Ευρήματα: position mismatch **0** (το `PRESET_POSITIONS` δουλεύει), και το `versatile_wing_defender`
+      είναι το #1 αίτιο (10 misses). Δύο διορθώσεις:
+      **(α)** Το `versatile_wing_defender` είχε **θετικά** weights σε `reb_pct`/`height_cm`, με τη λογική
+      «ο wing defender είναι ψηλός και μαζεύει». Μέσα όμως στο eligible pool (G-F/F/F-C) αυτά ξεχωρίζουν
+      **bigs**: 6 από τα 8 false positives ήταν F-C. Μετρημένο Cohen's d expected-vs-FP: `reb_pct` −1.80,
+      `screen_assists` −1.59, `height_cm` −1.39 — όλα **αντίθετα** από την υπόθεση. Αντιστροφή +
+      προσθήκη `screen_assists` (καθαρός big-marker) → precision **0.529 → 0.692**, F1 **0.486 → 0.545**.
+      **(β)** Το "3-and-D Wing" ήταν δομικά απρόσιτο (0/8382): ισοπαλούσε με το "3-and-D Guard" σε
+      `(pos_ok, trait_count)` και έχανε στο dict ordering. Αναδιάταξη → 21 χρήσεις, μετρικές αμετάβλητες.
+- [ ] Classifier tuning — archetype top-1 accuracy (21/72 @ 0.6). Το triage δείχνει πού να δουλέψει κανείς:
+      **~31 misses = λείπει trait** (τεχνικό), **~16 = άλλος κλάδος** (ανά περίπτωση), **λίγα = ground truth**
+      (το `got` είναι εξίσου/πιο σωστό → `accept_also` στο `labels.py`, που χρησιμοποιείται μόλις σε 12/72
+      labels ενώ το `ignore` σε 46/72 — ανεκμετάλλευτο, ίδιο pattern με το Phase 7).
+      **ΟΡΙΟ που τεκμηριώθηκε:** το `versatile_wing_defender` recall (0.450) **δεν διορθώνεται με weights**.
+      Το `deflections` μετράει *στυλ* (ball-hawking), όχι ποιότητα: ο Mikal Bridges (elite on-ball, δεν
+      κάνει gambles) έχει 1.71 ενώ ο Luka Doncic (γνωστά κακός defender) 3.38. Οι κατανομές επικαλύπτονται
+      πλήρως (misses −0.63..+0.54, FPs +0.85..+2.88) και η αφαίρεση του deflections ρίχνει το recall σε 0.05.
+      Χρειάζονται matchup / DFG% / contested-shots δεδομένα — δεν υπάρχουν στο nba_api pipeline.
 - [ ] Per-36 normalization των `stl`/`blk` — `corr(stl, min) = +0.64`, δηλαδή το stl μετράει κατά κύριο
       λόγο *πόσο παίζεις*· per-36 πέφτει σε +0.08. Το rebounding είναι ήδη rate-adjusted (`oreb_pct`/
       `dreb_pct`, corr ≈ 0) — ασύμμετρος σχεδιασμός.

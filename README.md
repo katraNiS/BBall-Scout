@@ -114,9 +114,16 @@ backend τον _wrap-άρει_, δεν τον ξαναγράφει.
       ανά παίκτη, με confidence discount ώστε τα ελλιπή rows να μην εκτοπίζουν όσα έχουν πλήρη δεδομένα.
       Defensive queries: **0% → 54.7%** pre-2016 representation (baseline 57.7%), με μηδενικό regression
       στα offensive. Το UI δείχνει badge «N% data» όπου το match κρίθηκε σε λιγότερα stats.
-- [x] **Test suite** (`tests/`) — 47 pytest tests: data integrity, era balance, discriminative power,
-      threshold usability, metadata συνέπεια
-- [ ] Classifier tuning: archetype top-1 accuracy (ξεχωριστό, πιο δύσκολο πρόβλημα — βλ. `CLAUDE.md`)
+- [x] **Test suite** (`tests/`) — 56 pytest tests: data integrity, era balance, discriminative power,
+      threshold usability, preset reachability, metadata συνέπεια
+- [x] **Archetype triage** (`validation/triage_archetypes.py`) — κατηγοριοποιεί τα misclassifications ώστε
+      να ξεχωρίζει τι είναι τεχνικό bug και τι απόφαση ground truth. Οδήγησε σε δύο διορθώσεις: το
+      `versatile_wing_defender` ανταμείβε το *μέγεθος* (6/8 false positives ήταν centers) → precision
+      0.529 → 0.692· και το preset "3-and-D Wing" ήταν δομικά απρόσιτο (0 χρήσεις σε 8382 rows) επειδή
+      έχανε σε ισοπαλία από το "3-and-D Guard" → 21 G-F wings έπαιρναν λάθος "Guard" label
+- [ ] Classifier tuning: archetype top-1 accuracy (ξεχωριστό, πιο δύσκολο πρόβλημα — βλ. `CLAUDE.md`).
+      Τεκμηριωμένο όριο: η *versatile wing defense* δεν είναι μετρήσιμη από τα διαθέσιμα stats — το
+      `deflections` μετράει στυλ (ball-hawking), όχι ποιότητα άμυνας
 - [ ] Per-36 normalization των `stl`/`blk` (τώρα counting stats ενώ το rebounding είναι rate-adjusted)
 - [ ] Self-contained bundle (PyInstaller backend exe)
 - [ ] Multi-league support (NCAA, EuroLeague κ.α.)
@@ -147,8 +154,9 @@ ProspectMatch/
 ├── electron/                  ← desktop shell (spawn backend + load UI)  [DONE]
 ├── validation/                ← measurement harnesses (δεν αλλάζουν το src/)
 │   ├── tune_threshold.py      ← per-trait P/R/F1 + threshold sweep → REPORT.md  [DONE]
-│   └── defense_impact.py      ← era balance / corrupt rows / def_rating → DEFENSE_IMPACT.md  [DONE]
-├── tests/                     ← pytest suite (47 tests)  [DONE]
+│   ├── defense_impact.py      ← era balance / corrupt rows / def_rating → DEFENSE_IMPACT.md  [DONE]
+│   └── triage_archetypes.py   ← misses: bug vs ground truth → TRIAGE.md  [DONE]
+├── tests/                     ← pytest suite (56 tests)  [DONE]
 └── app/
     └── streamlit_app.py       ← Streamlit UI (legacy, λειτουργικό)  [DONE]
 ```
@@ -185,6 +193,9 @@ python validation/tune_threshold.py     # → validation/REPORT.md
 ```
 ```bash
 python validation/defense_impact.py     # → validation/DEFENSE_IMPACT.md
+```
+```bash
+python validation/triage_archetypes.py  # → validation/TRIAGE.md
 ```
 
 > Prospects + search history γράφονται σε `./.prospectmatch-data/` (dev) ή στο path

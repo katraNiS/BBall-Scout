@@ -215,15 +215,43 @@ TRAITS: dict[str, Trait] = {
         name="versatile_wing_defender",
         positions=["G-F", "F", "F-C"],
         signals=[
-            # Deflections: καλύτερος individual proxy για wing defense.
-            # OG Anunoby, Mikal Bridges, Kawhi ψηλά → ξεχωρίζουν τώρα.
+            # Deflections: ο μόνος individual proxy για wing defense που έχουμε.
+            # Μετρημένο: αφαίρεσή του ρίχνει το recall σε 0.05 — δεν υπάρχει
+            # εναλλακτικό signal στο dataset.
             Signal("deflections", weight=2.5),
             Signal("def_rating",  weight=-2.0),
             Signal("stl",         weight=1.0),
             Signal("blk",         weight=0.5),
-            Signal("reb_pct",     weight=0.5),
-            Signal("height_cm",   weight=0.5),
+            # ── ΑΡΝΗΤΙΚΑ: "wing" σημαίνει ΟΧΙ big ────────────────────────────
+            # Το trait είναι eligible σε G-F/F/F-C. Μέσα σε αυτό το pool, τα
+            # reb_pct/height_cm/screen_assists δεν ξεχωρίζουν καλούς wing
+            # defenders — ξεχωρίζουν BIGS. Είχαν θετικά weights (λογική «ο wing
+            # defender είναι ψηλός και μαζεύει»), δηλαδή το trait ανταμείβε
+            # ακριβώς τα χαρακτηριστικά των λάθος παικτών: 6 από τα 8 false
+            # positives ήταν F-C (Embiid, KAT, Hartenstein, AD, Bam, JJJ).
+            #
+            # Μετρημένο separation expected vs FP (Cohen's d):
+            #   reb_pct -1.80 | screen_assists -1.59 | blk -1.40 | height -1.39
+            # δηλαδή όλα δείχνουν προς την ΑΝΤΙΘΕΤΗ κατεύθυνση απ' ό,τι υπέθετε
+            # ο αρχικός σχεδιασμός. Το screen_assists είναι ο καθαρότερος
+            # big-marker (screen setting = big-man action), γι' αυτό μπήκε.
+            #
+            # Αποτέλεσμα: precision 0.529 -> 0.692, F1 0.486 -> 0.545,
+            # macro-F1 0.597 -> 0.600, archetype top-1 20/72 -> 21/72.
+            Signal("reb_pct",        weight=-0.5),
+            Signal("height_cm",      weight=-0.5),
+            Signal("screen_assists", weight=-1.0),
             # wingspan_cm: θα προστεθεί όταν έρθει το Kaggle Draft Combine dataset
+            #
+            # ΓΝΩΣΤΟ ΟΡΙΟ — recall 0.450, δεν διορθώνεται με weights:
+            # οι misses (Mikal Bridges 1.71 defl, Aaron Gordon 0.94, Andrew
+            # Wiggins 1.52) είναι αναγνωρισμένοι wing defenders με ΧΑΜΗΛΑ
+            # deflections, γιατί το deflections μετράει ΣΤΥΛ (ball-hawking),
+            # όχι ποιότητα. Ο Bridges είναι elite on-ball defender που δεν
+            # κάνει gambles· ο Luka Doncic έχει 3.38 deflections και είναι
+            # γνωστά κακός defender. Οι δύο κατανομές επικαλύπτονται πλήρως
+            # (misses -0.63..+0.54, FPs +0.85..+2.88) — κανένα threshold δεν
+            # τις χωρίζει. Χρειάζονται matchup/DFG%/contested-shot δεδομένα.
         ],
     ),
 
@@ -319,6 +347,17 @@ COMPOUNDS: dict[str, frozenset[str]] = {
         frozenset({"on_ball_creator", "movement_shooter"}),
     "Slashing Guard":
         frozenset({"slasher", "on_ball_creator"}),
+    # ΠΡΟΣΟΧΗ στη σειρά: το "3-and-D Wing" ΠΡΕΠΕΙ να προηγείται του
+    # "3-and-D Guard". Έχουν και τα δύο 2 traits, οπότε για έναν G-F παίκτη το
+    # score (pos_ok, trait_count) ισοπαλεί και αποφασίζει το dict ordering.
+    # Με το Guard πρώτο, το "3-and-D Wing" ΔΕΝ εμφανιζόταν ΠΟΤΕ (0/8382 rows)
+    # και 21 G-F wings (Dan Majerle, Thabo Sefolosha, Joe Ingles, Eddie Jones…)
+    # έπαιρναν λανθασμένα "Guard" label. Καθαροί guards δεν επηρεάζονται: το
+    # "3-and-D Wing" δεν είναι position-eligible για "G" (pos_ok=0), οπότε
+    # χάνει σωστά. Μετρημένο: 21 rows άλλαξαν, macro-F1 και archetype top-1
+    # έμειναν αμετάβλητα (0.600 / 21-72).
+    "3-and-D Wing":
+        frozenset({"spot_up_shooter", "versatile_wing_defender"}),
     "3-and-D Guard":
         frozenset({"spot_up_shooter", "point_of_attack_defender"}),
     "Defensive Playmaker":
@@ -336,8 +375,7 @@ COMPOUNDS: dict[str, frozenset[str]] = {
         frozenset({"on_ball_creator", "slasher", "versatile_wing_defender"}),
     "Wing Scorer":
         frozenset({"on_ball_creator", "midrange_scorer", "movement_shooter"}),
-    "3-and-D Wing":
-        frozenset({"spot_up_shooter", "versatile_wing_defender"}),
+    # "3-and-D Wing": ορίζεται παραπάνω, πριν το "3-and-D Guard" — βλ. σχόλιο εκεί.
     "Point Forward":
         frozenset({"on_ball_creator", "lead_playmaker", "versatile_wing_defender"}),
     "Connector / Glue Wing":
