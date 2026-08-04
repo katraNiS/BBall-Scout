@@ -24,5 +24,8 @@ tempCodeRunnerFile.py
 .env
 .env.local
 
+# Claude Code local config (per-machine permissions + dev-server launch config)
+.claude/
+
 # Prospect store (user data — resolved via PROSPECTMATCH_DATA_DIR, dev fallback here)
 .prospectmatch-data/

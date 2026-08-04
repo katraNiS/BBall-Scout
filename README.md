@@ -40,7 +40,7 @@ nba_api  →  pipeline/fetch_nba_data.py  →  data/nba_stats_full.csv
             backend/ (FastAPI API)                              app/streamlit_app.py
             /similar /classify /stats ...                       (legacy UI, λειτουργικό)
                          ↓
-            frontend/ (React + Recharts)  ←  wrapped σε  →  electron/ (desktop app)
+            frontend/ (React + TS, SVG radar)  ←  wrapped σε  →  electron/ (desktop app)
 ```
 
 Το **desktop app** (Electron + FastAPI + React) είναι η κύρια κατεύθυνση· το Streamlit
@@ -62,7 +62,7 @@ _wrap-άρει_, δεν τον ξαναγράφει· αλλάζει μόνο μ
 |---|---|
 | Core / Language | Python (`src/` — preprocessing, archetypes, similarity) |
 | Backend API | FastAPI + uvicorn |
-| Frontend | React 18 + TypeScript + Vite + Recharts |
+| Frontend | React 18 + TypeScript + Vite (raw-SVG radar, χωρίς charting lib) |
 | Desktop shell | Electron + electron-builder |
 | Legacy UI | Streamlit (`app/streamlit_app.py`) |
 | Data storage | CSV flat file (`data/nba_stats_full.csv`) |
@@ -93,13 +93,19 @@ _wrap-άρει_, δεν τον ξαναγράφει· αλλάζει μόνο μ
 - [x] Radar chart (percentile 0–100) — StatsBomb-style, player vs user target, `plotly`
 - [x] Validation harness (`validation/`) — 72 labeled παίκτες, per-trait precision/recall/F1, threshold sweep → `REPORT.md`
 - [x] **FastAPI backend** (`backend/`) — 6 endpoints (`/similar`, `/classify`, `/stats`, `/archetypes`, …), wrap-άρει το `src/` αμετάβλητο
-- [x] **React frontend** (`frontend/`) — stat builder + result cards + Recharts radar (TypeScript)
+- [x] **React frontend** (`frontend/`) — stat builder + result cards + radar (TypeScript)
 - [x] **Electron desktop app** (`electron/`) — `npm run dev` (backend+frontend+electron μαζί), `npm run dist`
 - [x] **Routing + πολλαπλά screens** — `react-router-dom` (`HashRouter`), Home / Search / Prospects screens
 - [x] **Prospect tracking** — CRUD για χειρόγραφους prospects (JSON store, `PROSPECTMATCH_DATA_DIR`)
 - [x] **Prospect ↔ NBA comps** — prefill search από prospect physicals, αποθήκευση/διαγραφή αποτελεσμάτων
 - [x] **Home screen + search history** — dataset status, πρόσφατοι prospects, τελευταίες αναζητήσεις (re-run με ένα click)
 - [x] **UI polish** — φίλτρο ανά position + export αποτελεσμάτων σε CSV (client-side, στο search screen)
+- [x] **UI rebuild — "Industry dark"** — dark-mode-first, data-dense επανασχεδίαση και των 4 οθονών:
+      stat builder με **πραγματικό histogram** του league ανά stat, πίνακας matches με coverage cells
+      και expandable breakdown, raw-SVG radar overlay (αφαιρέθηκε το Recharts, bundle ~600 KB → 219 KB).
+      Η υλοποίηση αποκάλυψε τρία σφάλματα παρουσίασης που το προηγούμενο UI έκρυβε — breakdown με
+      features που δεν ζητήθηκαν, imputed τιμές που εμφανίζονταν ως μετρημένες, και συντομεύσεις labels
+      που έβγαζαν "cm" αντί για "Height". Όλα διορθωμένα και κλειδωμένα με tests.
 - [x] **`ARCHETYPES.md` sync** — 29 → 36 presets, real players επιβεβαιωμένα πάνω στο dataset
 - [x] **Classifier eval hardening** — validation ground truth (`validation/labels.py`) διορθώθηκε ώστε να μην
       τιμωρεί legit δευτερεύοντα traits πολυδιάστατων players· macro-F1 0.494 → 0.601 (+22%), χωρίς αλλαγές
@@ -154,14 +160,14 @@ ProspectMatch/
 │   └── similarity.py          ← matching engine  [DONE]
 ├── backend/                   ← FastAPI API (wrap-άρει το src/)  [DONE]
 │   └── store.py               ← JSON repo: prospects.json + searches.json (atomic write)  [DONE]
-├── frontend/                  ← React + TS + Vite + Recharts  [DONE]
+├── frontend/                  ← React + TS + Vite (Industry dark design system)  [DONE]
 │   └── src/screens/           ← Home, Search, Prospects, ProspectForm (react-router HashRouter)  [DONE]
 ├── electron/                  ← desktop shell (spawn backend + load UI)  [DONE]
 ├── validation/                ← measurement harnesses (δεν αλλάζουν το src/)
 │   ├── tune_threshold.py      ← per-trait P/R/F1 + threshold sweep → REPORT.md  [DONE]
 │   ├── defense_impact.py      ← era balance / corrupt rows / def_rating → DEFENSE_IMPACT.md  [DONE]
 │   └── triage_archetypes.py   ← misses: bug vs ground truth → TRIAGE.md  [DONE]
-├── tests/                     ← pytest suite (64 tests)  [DONE]
+├── tests/                     ← pytest suite (73 tests)  [DONE]
 └── app/
     └── streamlit_app.py       ← Streamlit UI (legacy, λειτουργικό)  [DONE]
 ```

@@ -10,7 +10,7 @@ Desktop migration του Streamlit scouting tool. Τρία layers:
                │ loads
 ┌──────────────▼──────────────┐        HTTP :8000
 │  React SPA (frontend/)       │ ─────────────────────► ┌──────────────────────┐
-│  Vite + TS + Recharts        │ ◄───────────────────── │  FastAPI (backend/)   │
+│  Vite + TS (SVG radar)       │ ◄───────────────────── │  FastAPI (backend/)   │
 └─────────────────────────────┘   /stats /similar ...   │  wraps src/ engine    │
                                                           └──────────┬───────────┘
                                                                      │ imports

@@ -1,27 +1,33 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api";
 import { useMeta } from "../MetaContext";
-import type { Prospect, SearchHistoryEntry } from "../types";
+import type { Prospect, SearchHistoryEntry, StatMeta } from "../types";
 import { deriveAge, prospectFullName } from "../prospectUtils";
+import { compactCount, formatWithUnit, shortLabel } from "../statFormat";
 import type { FromSearchRestore } from "./SearchScreen";
 
-function timeAgo(iso: string): string {
-  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
-  if (mins < 1) return "μόλις τώρα";
-  if (mins < 60) return `πριν ${mins} λεπτά`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `πριν ${hours} ώρες`;
-  const days = Math.floor(hours / 24);
-  return `πριν ${days} μέρες`;
+function initialsOf(p: Prospect): string {
+  return `${p.first_name[0] ?? ""}${p.last_name[0] ?? ""}`.toUpperCase() || "—";
+}
+
+// Σύντομος χρόνος για πυκνή στήλη 62px: ώρα αν είναι σήμερα, αλλιώς μέρες/εβδομάδες.
+function shortTime(iso: string): string {
+  const then = new Date(iso);
+  const mins = Math.floor((Date.now() - then.getTime()) / 60000);
+  if (mins < 60 * 12) return then.toLocaleTimeString("el-GR", { hour: "2-digit", minute: "2-digit" });
+  const days = Math.floor(mins / 1440);
+  if (days < 1) return "χθες";
+  if (days < 7) return `${days}μ`;
+  if (days < 60) return `${Math.floor(days / 7)}εβδ`;
+  return `${Math.floor(days / 30)}μήν`;
 }
 
 export default function HomeScreen() {
   const { stats } = useMeta();
+  const navigate = useNavigate();
 
-  const [health, setHealth] = useState<{ status: string; players: number; rows: number } | null>(
-    null
-  );
+  const [health, setHealth] = useState<{ status: string; players: number; rows: number } | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
 
   const [prospects, setProspects] = useState<Prospect[] | null>(null);
@@ -47,154 +53,205 @@ export default function HomeScreen() {
       .catch((e) => setSearchesError(e instanceof ApiError ? e.message : String(e)));
   }, []);
 
-  const statLabel = (key: string) => stats.find((s) => s.key === key)?.label ?? key;
+  const statByKey = useMemo(() => {
+    const m: Record<string, StatMeta> = {};
+    for (const s of stats) m[s.key] = s;
+    return m;
+  }, [stats]);
 
+  // Ένα query σε μία γραμμή monospace: "PTS 26.4 ×3 · TS% 60.5 · AST% 28.4 +2"
+  const summarizeQuery = (entry: SearchHistoryEntry): string => {
+    const parts = Object.entries(entry.query.stats).map(([k, v]) => {
+      const meta = statByKey[k];
+      const w = entry.query.weights?.[k];
+      const label = meta ? shortLabel(meta) : k;
+      const value = meta ? formatWithUnit(meta, v) : String(v);
+      return `${label} ${value}${w && w !== 1 ? ` ×${w}` : ""}`;
+    });
+    if (parts.length <= 3) return parts.join(" · ");
+    return `${parts.slice(0, 3).join(" · ")} +${parts.length - 3}`;
+  };
+
+  const totalComps = prospects?.reduce((t, p) => t + p.comps.length, 0) ?? 0;
   const recentProspects = prospects ? prospects.slice(0, 6) : []; // ήδη newest-updated-first
-  const recentSearches = searches ? searches.slice(0, 5) : [];
+  const recentSearches = searches ? searches.slice(0, 10) : [];
 
-  const toRestoreState = (entry: SearchHistoryEntry): { fromSearch: FromSearchRestore } => ({
-    fromSearch: {
-      stats: entry.query.stats,
-      weights: entry.query.weights,
-      season_range: entry.query.season_range,
-      active_traits: entry.query.active_traits,
-      top_n: entry.top_n,
+  const restoreSearch = (entry: SearchHistoryEntry) => {
+    const state: { fromSearch: FromSearchRestore } = {
+      fromSearch: {
+        stats: entry.query.stats,
+        weights: entry.query.weights,
+        season_range: entry.query.season_range,
+        active_traits: entry.query.active_traits,
+        top_n: entry.top_n,
+      },
+    };
+    navigate("/search", { state });
+  };
+
+  const tiles = [
+    {
+      label: "Season rows",
+      value: health ? compactCount(health.rows) : "—",
+      sub: "μετά το tiered MPG filter",
     },
-  });
+    {
+      label: "Distinct players",
+      value: health ? compactCount(health.players) : "—",
+      sub: health && health.players ? `~${(health.rows / health.players).toFixed(1)} σεζόν ανά παίκτη` : "—",
+    },
+    {
+      label: "Features indexed",
+      value: stats.length ? String(stats.length) : "—",
+      sub: `${new Set(stats.map((s) => s.group)).size} κατηγορίες · z-scored`,
+    },
+    {
+      label: "Prospects / comps",
+      value: prospects ? `${prospects.length}` : "—",
+      sub: `${totalComps} αποθηκευμένα comp sets`,
+    },
+  ];
 
   return (
-    <main className="main home-screen">
-      <header className="home-header">
-        <h2>🏀 ProspectMatch</h2>
-        <p className="lede">
-          Scouting εργαλείο NBA — όρισε ένα player profile και βρες τους πιο όμοιους πραγματικούς
-          παίκτες, ή κράτα τα δικά σου prospects.
-        </p>
-        <div className="status-line">
-          {healthError ? (
-            <>
-              <span className="status-dot down" /> Backend offline
-            </>
-          ) : health ? (
-            <>
-              <span className="status-dot ok" /> {health.players} παίκτες · {health.rows} rows
-            </>
-          ) : (
-            "Φόρτωση..."
-          )}
-        </div>
-      </header>
-
-      <div className="home-quick-actions">
-        <Link to="/search" className="quick-action-card">
-          <div className="quick-action-icon">🔍</div>
-          <div className="quick-action-title">Νέα αναζήτηση</div>
-          <div className="quick-action-body">
-            Όρισε stats + βάρη και βρες τους πιο όμοιους παίκτες της NBA.
-          </div>
-        </Link>
-        <Link to="/prospects/new" className="quick-action-card">
-          <div className="quick-action-icon">➕</div>
-          <div className="quick-action-title">Πρόσθεσε prospect</div>
-          <div className="quick-action-body">Καταχώρησε έναν παίκτη που παρακολουθείς.</div>
-        </Link>
-      </div>
-
-      <section className="home-section">
-        <div className="home-section-head">
-          <h3>Οι prospects σου{prospects && prospects.length > 0 ? ` (${prospects.length})` : ""}</h3>
-          {prospects && prospects.length > 0 && <Link to="/prospects">Δες όλους →</Link>}
-        </div>
-
-        {prospectsError ? (
-          <div className="error-box">{prospectsError}</div>
-        ) : !prospects ? (
-          <div className="state-msg small">
-            <span className="spinner" /> &nbsp;Φόρτωση...
-          </div>
-        ) : prospects.length === 0 ? (
-          <div className="empty-state home-empty">
-            <div className="empty-state-title">Δεν έχεις προσθέσει κανέναν prospect ακόμα</div>
-            <p className="empty-state-body">
-              Ένα prospect είναι ένας παίκτης που παρακολουθείς χειροκίνητα — physicals, ομάδα,
-              σημειώσεις.
-            </p>
-            <Link className="run-btn empty-state-cta" to="/prospects/new">
-              + Πρόσθεσε τον πρώτο prospect
-            </Link>
-          </div>
-        ) : (
-          <div className="home-prospect-grid">
-            {recentProspects.map((p) => {
-              const age = deriveAge(p);
-              return (
-                <Link className="home-prospect-card" to={`/prospects/${p.id}/edit`} key={p.id}>
-                  <div className="prospect-name">{prospectFullName(p)}</div>
-                  <div className="prospect-card-meta">
-                    {p.position ?? "—"}
-                    {age != null ? ` · ${age} ετών` : ""}
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        )}
-      </section>
-
-      <section className="home-section">
-        <div className="home-section-head">
-          <h3>Πρόσφατες αναζητήσεις</h3>
-        </div>
-
-        {searchesError ? (
-          <div className="error-box">{searchesError}</div>
-        ) : !searches ? (
-          <div className="state-msg small">
-            <span className="spinner" /> &nbsp;Φόρτωση...
-          </div>
-        ) : searches.length === 0 ? (
-          <div className="empty-state home-empty">
-            <div className="empty-state-title">Δεν έχεις τρέξει καμία αναζήτηση ακόμα</div>
-            <p className="empty-state-body">
-              Κάθε search που τρέχεις εμφανίζεται εδώ, με τα stats που ζήτησες και τα top matches,
-              για γρήγορη επαναφορά.
-            </p>
-            <Link className="run-btn empty-state-cta" to="/search">
-              🔍 Ξεκίνα μια αναζήτηση
-            </Link>
-          </div>
-        ) : (
-          <div className="home-search-list">
-            {recentSearches.map((entry) => (
-              <Link
-                className="home-search-card"
-                to="/search"
-                state={toRestoreState(entry)}
-                key={entry.id}
-              >
-                <div className="home-search-top">
-                  <span className="comp-date">{timeAgo(entry.created_at)}</span>
-                </div>
-                <div className="comp-query">
-                  {Object.entries(entry.query.stats).map(([k, v], i) => (
-                    <span key={k}>
-                      {i > 0 && " · "}
-                      <b>{statLabel(k)}</b>: {v}
-                    </span>
-                  ))}
-                </div>
-                {entry.top_results.length > 0 && (
-                  <div className="home-search-results">
-                    {entry.top_results
-                      .map((r) => `${r.player_name} (${Math.round(r.similarity * 100)}%)`)
-                      .join(" · ")}
-                  </div>
-                )}
+    <div className="screen">
+      <div className="screen-scroll">
+        <div className="workspace">
+          <div className="ws-head">
+            <div>
+              <h3 className="h-screen">Workspace</h3>
+              <div className="sub">
+                {healthError
+                  ? "Ο backend δεν απαντά — τα νούμερα παρακάτω είναι κενά."
+                  : "Το dataset φορτώνεται μία φορά στο startup και μένει in-memory."}
+              </div>
+            </div>
+            <div className="ws-actions">
+              <Link to="/search" className="btn btn-primary">
+                Νέα αναζήτηση
               </Link>
+              <Link to="/prospects/new" className="btn">
+                Νέο prospect
+              </Link>
+            </div>
+          </div>
+
+          <div className="ws-tiles">
+            {tiles.map((t) => (
+              <div className="ws-tile" key={t.label}>
+                <div className="label" style={{ marginBottom: 6 }}>
+                  {t.label}
+                </div>
+                <div className="ws-tile-value">{t.value}</div>
+                <div className="ws-tile-sub">{t.sub}</div>
+              </div>
             ))}
           </div>
-        )}
-      </section>
-    </main>
+
+          <div className="ws-cols">
+            {/* ── Recent prospects ── */}
+            <section>
+              <div className="panel-head">
+                <span className="panel-title">Πρόσφατα prospects</span>
+                {prospects && prospects.length > 0 && (
+                  <Link to="/prospects" className="linkbtn" style={{ textDecoration: "none" }}>
+                    Όλα ({prospects.length})
+                  </Link>
+                )}
+              </div>
+
+              {prospectsError ? (
+                <div className="loading">{prospectsError}</div>
+              ) : !prospects ? (
+                <div className="loading">
+                  <span className="spinner" /> Φόρτωση…
+                </div>
+              ) : prospects.length === 0 ? (
+                <div className="empty" style={{ marginTop: 16 }}>
+                  <div className="empty-title">Κανένα prospect ακόμα</div>
+                  <div className="empty-body">
+                    Καταχώρησε physicals και σημειώσεις ενός παίκτη, και μετά τρέξε comp search
+                    κατευθείαν από την καρτέλα του.
+                  </div>
+                  <Link to="/prospects/new" className="btn">
+                    Πρόσθεσε prospect
+                  </Link>
+                </div>
+              ) : (
+                recentProspects.map((p) => {
+                  const age = deriveAge(p);
+                  return (
+                    <Link className="rp-row" to={`/prospects/${p.id}/edit`} key={p.id}>
+                      <span className="initials">{initialsOf(p)}</span>
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span className="rp-name" style={{ display: "block" }}>
+                          {prospectFullName(p)}
+                        </span>
+                        <span className="rp-meta">
+                          {p.position ?? "—"}
+                          {age != null ? ` · ${age}ε` : ""}
+                          {p.height_cm ? ` · ${p.height_cm.toFixed(0)}cm` : ""}
+                          {p.team ? ` · ${p.team}` : ""}
+                        </span>
+                      </span>
+                      <span className="rp-num">{p.comps.length} sets</span>
+                      <span className="rp-num" style={{ width: 64, textAlign: "right" }}>
+                        {shortTime(p.updated_at)}
+                      </span>
+                    </Link>
+                  );
+                })
+              )}
+            </section>
+
+            {/* ── Search history ── */}
+            <section>
+              <div className="panel-head">
+                <span className="panel-title">Ιστορικό αναζητήσεων</span>
+                <span className="sub-mono">τελευταίες 20</span>
+              </div>
+
+              {searchesError ? (
+                <div className="loading">{searchesError}</div>
+              ) : !searches ? (
+                <div className="loading">
+                  <span className="spinner" /> Φόρτωση…
+                </div>
+              ) : searches.length === 0 ? (
+                <div className="empty" style={{ marginTop: 16 }}>
+                  <div className="empty-title">Καμία αναζήτηση ακόμα</div>
+                  <div className="empty-body">
+                    Κάθε search καταγράφεται εδώ με τα stats που ζήτησες και τα top matches — ένα κλικ
+                    το επαναφέρει ολόκληρο στον builder.
+                  </div>
+                  <Link to="/search" className="btn">
+                    Ξεκίνα αναζήτηση
+                  </Link>
+                </div>
+              ) : (
+                recentSearches.map((entry) => {
+                  const top = entry.top_results[0];
+                  return (
+                    <button
+                      type="button"
+                      className="hist-row"
+                      key={entry.id}
+                      title={top ? `Top: ${top.player_name} (${top.season})` : undefined}
+                      onClick={() => restoreSearch(entry)}
+                    >
+                      <span className="hist-time">{shortTime(entry.created_at)}</span>
+                      <span className="hist-query">{summarizeQuery(entry)}</span>
+                      <span className="hist-n">{Object.keys(entry.query.stats).length} stats</span>
+                      <span className="hist-top">
+                        {top ? `${Math.round(top.similarity * 100)}%` : "—"}
+                      </span>
+                    </button>
+                  );
+                })
+              )}
+            </section>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

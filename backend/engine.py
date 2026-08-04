@@ -21,6 +21,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+# Πλήθος bins στο histogram που σερβίρει το /stats ανά feature. 24 είναι αρκετά
+# για να διαβάζεται το σχήμα της κατανομής σε ένα ~370px sparkline και αρκετά
+# λίγα ώστε το payload να μένει μικρό (23 features × 24 floats).
+_DIST_BINS = 24
+
 
 def _ascii_fold(s: str) -> str:
     """Strip diacritics ώστε "Jokic" να ματσάρει "Jokić" (NFKD + drop combining)."""
@@ -38,6 +43,7 @@ from preprocessing import (  # noqa: E402
     preprocess,
     build_percentile_matrix,
     stat_to_percentile,
+    AVAIL_PREFIX,
     FEATURE_COLS,
 )
 from archetypes import classify, COMPOUNDS, PRESET_POSITIONS, TRAITS  # noqa: E402
@@ -62,6 +68,11 @@ class Engine:
         self.df: pd.DataFrame | None = None
         self.matrix: np.ndarray | None = None
         self.scaler = None
+        # Cache του /stats payload — οι κατανομές είναι ακριβές να ξαναϋπολογίζονται
+        # ανά request και το df είναι immutable μετά το load().
+        self._stats_meta: dict | None = None
+        # (player_name, season) → set των features που ΕΛΕΙΠΑΝ και είναι imputed.
+        self._imputed: dict[tuple[str, str], frozenset[str]] = {}
 
     # ── Startup ────────────────────────────────────────────────────────────────
     def load(self) -> None:
@@ -77,6 +88,31 @@ class Engine:
         self.df = df
         self.matrix = matrix
         self.scaler = scaler
+        self._stats_meta = self._build_stats_meta()
+        self._imputed = self._build_imputed_index()
+
+    def _build_imputed_index(self) -> dict[tuple[str, str], frozenset[str]]:
+        """
+        Ποια features είναι group-median imputed ανά (player_name, season).
+
+        Το `find_similar()` επιστρέφει προβολή μόνο των result_cols — οι στήλες
+        `avail_*` δεν επιβιώνουν, οπότε το serialization δεν μπορεί να τις
+        διαβάσει από το result row. Το κλειδί είναι (player_name, season) και όχι
+        player_id γιατί ούτε το player_id επιβιώνει· είναι μοναδικό στην πράξη,
+        αφού το find_similar κρατά μία σεζόν ανά παίκτη.
+        """
+        df = self.df
+        cols = [c for c in FEATURE_COLS if AVAIL_PREFIX + c in df.columns]
+        if not cols:
+            return {}
+
+        index: dict[tuple[str, str], frozenset[str]] = {}
+        avail = df[[AVAIL_PREFIX + c for c in cols]].astype(bool)
+        for pos, (name, season) in enumerate(zip(df["player_name"], df["season"])):
+            missing = frozenset(c for j, c in enumerate(cols) if not avail.iat[pos, j])
+            if missing:
+                index[(str(name), str(season))] = missing
+        return index
 
     @property
     def ready(self) -> bool:
@@ -161,8 +197,25 @@ class Engine:
         user_radar: list[float],
     ) -> dict:
         exp = row["explanation"] or {}
-        matching = self._explain_entries(exp.get("matching", [])[:4], internal_stats, row, kind="match")
-        diverging = self._explain_entries(exp.get("diverging", [])[:3], internal_stats, row, kind="diverge")
+
+        # Το explain_match() γεμίζει και τις δύο λίστες μέχρι top_n=4 με argsort
+        # πάνω σε ΟΛΑ τα features — τα unspecified απλώς πάνε τελευταία, δεν
+        # κόβονται. Όταν ο χρήστης ορίσει λιγότερα από 4 stats, οι λίστες
+        # (α) γεμίζουν με features που ΔΕΝ ζητήθηκαν και δεν βάρυναν καθόλου στο
+        # distance, και (β) επικαλύπτονται μεταξύ τους (τα ίδια 3 stats, ανάποδη
+        # σειρά). Και τα δύο θα εμφανίζονταν στο breakdown ως πραγματική
+        # συνεισφορά. Φιλτράρουμε εδώ, στο serialization layer, γιατί το ποια
+        # στοιχεία *δείχνεις* είναι ευθύνη του API — όχι του engine.
+        requested = set(internal_stats)
+        matching_raw = [e for e in exp.get("matching", []) if e["feature"] in requested][:4]
+        seen = {e["feature"] for e in matching_raw}
+        diverging_raw = [
+            e for e in exp.get("diverging", [])
+            if e["feature"] in requested and e["feature"] not in seen
+        ][:3]
+
+        matching = self._explain_entries(matching_raw, internal_stats, row, kind="match")
+        diverging = self._explain_entries(diverging_raw, internal_stats, row, kind="diverge")
 
         player_radar = [float(row.get(f"pct_{c}", 50.0)) for c in radar_axes]
 
@@ -204,6 +257,7 @@ class Engine:
         row: pd.Series,
         kind: str,
     ) -> list[dict]:
+        imputed = self._imputed.get((str(row["player_name"]), str(row["season"])), frozenset())
         out = []
         for e in entries:
             col = e["feature"]
@@ -225,6 +279,12 @@ class Engine:
             out.append({
                 "feature":       col,
                 "label":         DISPLAY_LABELS.get(col, col),
+                # Είχε αυτό το row πραγματικά δεδομένα, ή είναι group-median
+                # imputed; Χωρίς αυτό το breakdown δείχνει imputed αριθμό σαν
+                # μετρημένο — με fit bar — ενώ το availability masking τον έχει
+                # ήδη αποκλείσει από το distance. Το row-level coverage λέει
+                # "50%" αλλά όχι *ποιο* 50%.
+                "available":     col not in imputed,
                 "user_value":    round(user_disp, 3),
                 "player_value":  round(plyr_disp, 3),
                 "user_display":  format_display(col, user_disp),
@@ -284,8 +344,66 @@ class Engine:
         return [str(n) for n in names]
 
     # ── /stats & /archetypes ───────────────────────────────────────────────────
-    @staticmethod
-    def stats_meta() -> dict:
+    def _real_values(self, col: str) -> pd.Series:
+        """
+        Οι τιμές ενός feature **μόνο** για τα rows που έχουν πραγματικά δεδομένα,
+        σε display units.
+
+        Το `avail_<col>` φιλτράρισμα είναι κρίσιμο: τα hustle/defensive features
+        είναι group-median imputed για το ~44-56% της βάσης, οπότε χωρίς αυτό η
+        κατανομή θα έδειχνε μια τεράστια τεχνητή κορυφή στη median — δηλαδή θα
+        έλεγε ψέματα ακριβώς εκεί που το UI υπόσχεται ειλικρίνεια για την κάλυψη.
+        """
+        df = self.df
+        avail = AVAIL_PREFIX + col
+        series = df[col] if avail not in df.columns else df.loc[df[avail].astype(bool), col]
+        series = series.dropna()
+        return series * 100.0 if col in PCT_COLS else series
+
+    def _build_stats_meta(self) -> dict:
+        """
+        Το /stats payload, εμπλουτισμένο με την πραγματική κατανομή κάθε feature.
+
+        Ο client το χρειάζεται για δύο πράγματα που αλλιώς θα ήταν εικασίες:
+          * `dist` — 24-bin histogram πάνω στο [min, max] των RANGES, κανονικοποιημένο
+            στο 1.0, ώστε το stat builder να δείχνει πού πέφτει η τιμή του χρήστη
+            μέσα στο league.
+          * `pcts` — 101 quantiles (p0…p100) σε display units. Με binary search ο
+            client βγάζει ακριβές percentile χωρίς round-trip ανά κίνηση του slider.
+        Το `n_rows` είναι το πλήθος rows με πραγματικά (μη imputed) δεδομένα.
+        """
+        stats = stats_metadata()
+        for meta in stats:
+            col = meta["key"]
+            values = self._real_values(col)
+            meta["n_rows"] = int(values.size)
+            if values.empty:
+                meta["dist"] = [0.0] * _DIST_BINS
+                meta["pcts"] = [meta["min"]] * 101
+                continue
+
+            counts, _ = np.histogram(
+                values, bins=_DIST_BINS, range=(meta["min"], meta["max"])
+            )
+            peak = int(counts.max())
+            meta["dist"] = [round(float(c) / peak, 3) for c in counts] if peak else [0.0] * _DIST_BINS
+            meta["pcts"] = [
+                round(float(q), 4)
+                for q in np.percentile(values, np.arange(0, 101))
+            ]
+
+        return {
+            "stats": stats,
+            "traits": ALL_TRAITS,
+            "groups": list(GROUPS.keys()),
+            "trait_labels": {t: t.replace("_", " ").title() for t in ALL_TRAITS},
+        }
+
+    def stats_meta(self) -> dict:
+        # Πριν το load() δεν υπάρχει dataset για κατανομές — ο client χειρίζεται
+        # το `dist` ως optional, οπότε σερβίρουμε τα σκέτα metadata.
+        if self._stats_meta is not None:
+            return self._stats_meta
         return {
             "stats": stats_metadata(),
             "traits": ALL_TRAITS,

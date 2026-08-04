@@ -310,9 +310,23 @@ class TestMetadataConsistency:
         grouped = {c for cols in metadata.GROUPS.values() for c in cols}
         for col in FEATURE_COLS:
             assert col in metadata.DISPLAY_LABELS, f"{col}: λείπει label"
+            assert col in metadata.SHORT_LABELS, f"{col}: λείπει short label"
             assert col in metadata.FORMAT, f"{col}: λείπει format"
             assert col in metadata.RANGES, f"{col}: λείπει range"
             assert col in grouped, f"{col}: δεν ανήκει σε κανένα GROUP"
+
+    def test_short_labels_are_short_and_unique(self):
+        """
+        Τα SHORT_LABELS ζουν σε στήλες ~90px και σε άξονες radar 9px — ένα
+        μακρύ ή διπλότυπο short label σπάει σιωπηλά τη στοίχιση αντί να σκάσει.
+        """
+        import metadata
+        from preprocessing import FEATURE_COLS
+
+        shorts = [metadata.SHORT_LABELS[c] for c in FEATURE_COLS]
+        assert len(shorts) == len(set(shorts)), "διπλότυπα short labels"
+        for col, short in zip(FEATURE_COLS, shorts):
+            assert len(short) <= 8, f"{col}: short label '{short}' > 8 χαρακτήρες"
 
     def test_no_orphan_metadata_entries(self):
         """Το αντίστροφο: metadata για feature που δεν υπάρχει πια."""

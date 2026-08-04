@@ -64,6 +64,37 @@ DISPLAY_LABELS: dict[str, str] = {
     "weight_lbs":     "Weight (lbs)",
 }
 
+# Σύντομα keys για πυκνά UI (στήλες πίνακα, άξονες radar, ιστορικό αναζητήσεων).
+# Ξεχωριστά από τα DISPLAY_LABELS επίτηδες: εκείνα είναι φτιαγμένα για ανάγνωση
+# ("Defensive Rating (lower = better)"), αυτά για μια στήλη 90px. Χωρίς αυτά ο
+# client αναγκάζεται να μαντεύει με regex πάνω στο label — και μαντεύει λάθος
+# ("Height (cm)" → "cm").
+SHORT_LABELS: dict[str, str] = {
+    "pts":            "PTS",
+    "usg_pct":        "USG%",
+    "ts_pct":         "TS%",
+    "efg_pct":        "eFG%",
+    "fg3a":           "3PA",
+    "fg3_pct":        "3P%",
+    "fta":            "FTA",
+    "ft_pct":         "FT%",
+    "pct_pts_2pt_mr": "MR%PTS",
+    "ast_pct":        "AST%",
+    "ast_to":         "AST/TO",
+    "tov":            "TOV",
+    "oreb_pct":       "OREB%",
+    "dreb_pct":       "DREB%",
+    "stl":            "STL",
+    "blk":            "BLK",
+    "deflections":    "DEFL",
+    "def_rating":     "DRTG",
+    "d_fg3_diff":     "D3P±",
+    "d_rim_diff":     "DRIM±",
+    "net_rating":     "NETRTG",
+    "height_cm":      "HT",
+    "weight_lbs":     "WT",
+}
+
 # (python format template, unit suffix) — εφαρμόζεται στο display value
 FORMAT: dict[str, tuple[str, str]] = {
     "pts":            ("{:.1f}", "PPG"),
@@ -161,6 +192,7 @@ def stats_metadata() -> list[dict]:
             out.append({
                 "key":     col,
                 "label":   DISPLAY_LABELS[col],
+                "short":   SHORT_LABELS.get(col, DISPLAY_LABELS[col]),
                 "group":   group_name,
                 "min":     lo,
                 "max":     hi,

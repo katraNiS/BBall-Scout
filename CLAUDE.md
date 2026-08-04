@@ -28,7 +28,11 @@ stats + βάρη ανά stat + επιθυμητά traits — και το σύσ�
 
 - **Language (core + backend):** Python
 - **Backend API:** FastAPI + uvicorn (`POST /similar`, `/classify`, `GET /stats`, `/archetypes`, …)
-- **Frontend:** React 18 + TypeScript + Vite + Recharts (radar). Wrapped σε **Electron** desktop app.
+- **Frontend:** React 18 + TypeScript + Vite. Wrapped σε **Electron** desktop app.
+  Το radar είναι **raw SVG** (`components/RadarChart.tsx`) — το Recharts αφαιρέθηκε στο
+  Phase 12: το ίδιο component πρέπει να διαβάζεται και στα 84px (μέσα σε γραμμή πίνακα)
+  και στα 252px (expanded row), και σε αυτά τα μεγέθη ticks/tooltips/legends είναι θόρυβος
+  που δεν χωράει. Bundle 219 KB (από ~600 KB).
 - **Legacy UI:** Streamlit (`app/streamlit_app.py`) — δουλεύει ακόμα ανεξάρτητα, δεν καταργήθηκε.
 - **Data storage:** CSV flat file (`data/nba_stats_full.csv`) — χωρίς DB προς το παρόν.
   Τα user-created δεδομένα (prospects, search history) είναι ξεχωριστά: JSON flat files
@@ -67,7 +71,7 @@ stats + βάρη ανά stat + επιθυμητά traits — και το σύσ�
       ↓
 [ API Layer ]         → FastAPI (backend/) — wrap-άρει το src/, serialize σε display-ready JSON
       ↓
-[ Client Layer ]      → React SPA (frontend/) — stat builder, result cards, Recharts radar
+[ Client Layer ]      → React SPA (frontend/) — stat builder, match table, SVG radar
       ↓
 [ Desktop Shell ]     → Electron (electron/) — spawn-άρει backend, φορτώνει το React UI
 ```
@@ -101,16 +105,18 @@ ProspectMatch/
 │   ├── schemas.py              ← Pydantic request models (SimilarRequest, Prospect*, Comp*, ...)
 │   ├── store.py                ← JSON repo για prospects.json + searches.json (atomic write, lock) [DONE]
 │   └── run_server.py          ← prod entry (χωρίς --reload)
-├── frontend/                  ← React + TS + Vite + Recharts [DONE]
+├── frontend/                  ← React + TS + Vite [DONE]
 │   └── src/
 │       ├── api.ts, types.ts   ← typed fetch client + response/request interfaces
-│       ├── App.tsx            ← shell: MetaProvider + HashRouter + nav + routes [DONE]
+│       ├── App.tsx            ← shell: title bar + dataset status strip + tab bar + routes [DONE]
+│       ├── styles.css         ← Industry dark design system (tokens + όλες οι κλάσεις) [DONE]
 │       ├── MetaContext.tsx    ← /stats fetched μία φορά, useMeta() hook [DONE]
+│       ├── statFormat.ts      ← format/short label/percentile lookup — ένα σημείο [DONE]
 │       ├── prospectUtils.ts   ← deriveAge, prospectFullName, toFromProspectPrefill [DONE]
 │       ├── units.ts           ← kg→lbs (μοναδικό σημείο μετατροπής) [DONE]
-│       ├── csv.ts             ← client-side CSV export των search results [DONE]
+│       ├── csv.ts             ← client-side CSV export (με coverage_pct) [DONE]
 │       ├── screens/           ← HomeScreen, SearchScreen, ProspectsScreen, ProspectFormScreen [DONE]
-│       └── components/        ← StatBuilder, ResultCard, RadarChart
+│       └── components/        ← StatBuilder, ResultRow, RadarChart (SVG), Coverage
 ├── electron/                  ← desktop shell [DONE]
 │   ├── main.cjs               ← spawn backend (env: PROSPECTMATCH_DATA_DIR=userData) → wait /health → load frontend/dist
 │   └── preload.cjs
@@ -124,11 +130,13 @@ ProspectMatch/
 │   ├── DEFENSE_IMPACT.md      ← generated defensive-matching snapshot
 │   ├── triage_archetypes.py   ← κατηγοριοποίηση misses: bug vs ground-truth [DONE]
 │   └── TRIAGE.md              ← generated triage snapshot
-├── tests/                     ← pytest suite (64 tests) [DONE]
+├── tests/                     ← pytest suite (73 tests) [DONE]
 │   ├── conftest.py            ← session-scoped fixtures· skip αν λείπει το dataset
 │   ├── test_defensive_features.py  ← data integrity: corrupt σεζόν, def_rating, metadata sync
 │   ├── test_defensive_matching.py  ← behaviour: era balance, discriminative power
-│   └── test_archetype_presets.py   ← preset reachability + signal directions
+│   ├── test_archetype_presets.py   ← preset reachability + signal directions
+│   └── test_api_serialization.py   ← τι *δείχνει* το API: breakdown scope, per-stat
+│                                     availability vs coverage, κατανομές του /stats
 └── app/
     └── streamlit_app.py       ← Streamlit UI (legacy, λειτουργικό) [DONE]
 ```
@@ -355,7 +363,7 @@ effective sample size). Καλιμπραρίστηκε μετρώντας: α=0 
 pre-2016 (baseline 57.7%).
 
 Το `coverage` επιστρέφεται στο API και εμφανίζεται ως badge «N% data» στο
-`ResultCard`.
+`ResultRow`.
 
 **Trait boost:** `+0.004` ανά shared active trait — tiebreaker μόνο, δεν κυριαρχεί.
 
@@ -376,7 +384,7 @@ Wrap-άρει το `src/` **χωρίς να το αλλάζει** (adds `src/` �
 | Method | Path          | Περιγραφή |
 |--------|---------------|-----------|
 | GET    | `/health`     | liveness + πλήθος παικτών/rows |
-| GET    | `/stats`      | feature metadata (ranges/labels/format/is_pct) + traits — ο client χτίζει το stat builder |
+| GET    | `/stats`      | feature metadata (ranges/labels/format/is_pct/**short/dist/pcts/n_rows**) + traits |
 | GET    | `/archetypes` | τα 36 compound presets (traits + eligible positions) |
 | GET    | `/players?q=` | autocomplete ονομάτων (diacritic-insensitive: "Jokic" → "Jokić") |
 | POST   | `/similar`    | top-N όμοιοι παίκτες· input = display-unit stats, weights, top_n, active_traits, season_range, (προαιρετικό) prospect_id |
@@ -392,7 +400,68 @@ Wrap-άρει το `src/` **χωρίς να το αλλάζει** (adds `src/` �
 stats είναι fractions. Το serialization (z-score → display value + percentile +
 match-quality class) γίνεται server-side στο `engine.py` ώστε ο client να μένει thin.
 
+**Τι πρόσθεσε το Phase 12 στο serialization** (όλα στο `backend/`, το `src/` αμετάβλητο):
+
+- **`/stats` → πραγματικές κατανομές.** Ανά feature: `dist` (24-bin histogram πάνω στο
+  [min, max] των RANGES, normalized στο 1.0), `pcts` (101 quantiles p0–p100 σε display
+  units) και `n_rows`. Υπολογίζονται **μόνο** πάνω σε rows με `avail_<col> = True` —
+  αλλιώς το group-median imputation θα έφτιαχνε τεχνητή κορυφή στη median, δηλαδή ψέμα
+  ακριβώς εκεί που το UI υπόσχεται ειλικρίνεια για την κάλυψη. Ο builder ζωγραφίζει το
+  `dist` και βγάζει ακριβές percentile με binary search στα `pcts`, χωρίς round-trip ανά
+  κίνηση του slider. Cache-άρονται στο `load()`.
+- **`/stats` → `short`.** `SHORT_LABELS` στο `metadata.py` ("TS%", "DRTG", "MR%PTS").
+  Τα `DISPLAY_LABELS` είναι για ανάγνωση· κάθε προσπάθεια να συντομευτούν client-side με
+  regex έβγαζε σκουπίδια ("Height (cm)" → "cm", "Defensive Rating (lower = better)" →
+  "lower = better"). Κλειδώνεται με test (unique + ≤ 8 χαρακτήρες).
+- **`/similar` → breakdown scope.** Το `explain_match()` γεμίζει matching/diverging μέχρι
+  top_n=4 με argsort πάνω σε ΟΛΑ τα features· τα unspecified πάνε τελευταία αλλά **δεν
+  κόβονται**. Με 2-3 ζητούμενα stats οι λίστες γέμιζαν με features που δεν ζητήθηκαν (και
+  δεν βάρυναν καθόλου στο distance) και **επικαλύπτονταν** μεταξύ τους. Το serializer
+  φιλτράρει πλέον στα requested και κάνει dedupe — το ποια στοιχεία *δείχνεις* είναι
+  ευθύνη του API, όχι του engine.
+- **`/similar` → per-stat `available`.** Το row-level `coverage` έλεγε "50%" αλλά όχι
+  *ποιο* 50%: το breakdown παρουσίαζε imputed τιμές σαν μετρημένες, με fit bar, ενώ το
+  availability masking τις είχε ήδη αποκλείσει από το distance. Το `find_similar()`
+  επιστρέφει προβολή μόνο των result_cols (οι `avail_*` δεν επιβιώνουν), οπότε το
+  `Engine._build_imputed_index()` χτίζει `(player_name, season) → frozenset` στο startup.
+  Το UI δείχνει «▨ / no data / εκτός».
+
 Setup/run/build: **`DEVELOPMENT.md`**.
+
+---
+
+## UI Layer (`frontend/`) — Industry dark
+
+Το UI υλοποιεί ένα dark inversion του "Industry" design system (Claude Design,
+`ProspectMatch.dc.html`). Χαρακτήρας: **τεχνικό όργανο μέτρησης, όχι consumer app.**
+
+- **Tokens** (`src/styles.css`): τρία επίπεδα επιφάνειας (`#0f1114` / `#121519` / `#1b1f24`)
+  που ξεχωρίζουν με ελάχιστη διαφορά φωτεινότητας **συν hairline border** — χωρίς σκιές.
+  `border-radius: 0` παντού. Accent `#94bce3` = "εδώ κοίτα", warn `#c58e4a` = "αυτό το
+  νούμερο στηρίζεται σε λιγότερα δεδομένα" — το χρώμα είναι σήμα, όχι διακόσμηση.
+- **Τυπογραφία:** Barlow (body) + Barlow Condensed (uppercase labels, tracking .1em) +
+  monospace με `tabular-nums` για **κάθε** αριθμό, ώστε οι στήλες να στοιχίζονται.
+  ⚠️ Καμία από τις δύο Barlow δεν έχει greek subset — τα ελληνικά πέφτουν per-glyph στα
+  επόμενα του stack, γι' αυτό ονομάζονται ρητά greek-capable fallbacks (Roboto Condensed /
+  Segoe UI). Σε offline packaged build δεν φορτώνει τίποτα και όλα πέφτουν στο Segoe UI:
+  το layout δεν αλλάζει, γιατί μεγέθη/letter-spacing/uppercase ορίζονται ρητά.
+- **Shell:** title bar → dataset status strip (rows/players/features, live από `/health`)
+  → tab bar. Κάθε screen γεμίζει ό,τι απομένει και κάνει το δικό του scrolling.
+- **Search:** δύο παράθυρα — builder rail (type-to-add αναζήτηση stat, category chips,
+  ανά stat: πραγματικό histogram + marker + slider + `×1/×2/×3` segmented βάρος +
+  «league pNN · N rows έχουν αυτό το stat») και πίνακας matches (rank / player / archetype /
+  coverage cells / mini radar / similarity), με expandable row που δείχνει το breakdown και
+  το μεγάλο radar overlay.
+- **Διακριτά βάρη** (`×1/×2/×3` αντί για ελεύθερο number input): το βάρος είναι δήλωση
+  προτεραιότητας, όχι βαθμονομημένη ποσότητα — τρία σκαλιά το εκφράζουν και αφαιρούν μια
+  ολόκληρη κατηγορία λάθους (0.7×, 4.5×) που το engine ούτως ή άλλως κανονικοποιεί στο Σw.
+- **Fit bar** στο breakdown: `fit = weight × (1 − |Δ percentile| / 100)`, με τη φόρμουλα
+  τυπωμένη πάνω από τον πίνακα. Percentiles και όχι raw units, γιατί μόνο έτσι είναι
+  συγκρίσιμα ανάμεσα σε features με τελείως διαφορετικές κλίμακες.
+- **Responsive:** το Electron window είναι resizable ενώ ο πίνακας έχει ~618px σταθερών
+  στηλών. Οι στήλες πέφτουν με σειρά προτεραιότητας (πρώτα το μικρό radar — υπάρχει σε
+  μεγέθυνση στο expanded row — μετά το archetype). **Coverage και similarity δεν φεύγουν
+  ποτέ**: είναι ο λόγος ύπαρξης του πίνακα.
 
 ---
 
@@ -472,7 +541,7 @@ prefill). Η καταγραφή είναι best-effort — μια αποτυχί
 - [x] Validation: 20 παίκτες (stars + role players)
 - [x] `validation/` harness — 72 labeled παίκτες, per-trait P/R/F1, threshold sweep, REPORT.md
 - [x] **FastAPI backend** (`backend/`) — 6 endpoints, wrap-άρει το src/ αμετάβλητο, dataset load στο startup
-- [x] **React frontend** (`frontend/`) — stat builder + result cards + Recharts radar, TS, error handling
+- [x] **React frontend** (`frontend/`) — stat builder + result cards + radar, TS, error handling
 - [x] **Electron shell** (`electron/`) — spawn backend + load UI· `npm run dev` (concurrently), `npm run dist`
 - [x] **Router refactor** (Phase 0) — `react-router-dom` v6 `HashRouter`, `App.tsx`→shell, screens/ split, `MetaContext`
 - [x] **Prospect storage** (Phase 1) — `backend/store.py` (JSON, atomic write, lock), `/prospects` CRUD, `PROSPECTMATCH_DATA_DIR`
@@ -517,6 +586,21 @@ prefill). Η καταγραφή είναι best-effort — μια αποτυχί
       Το `tune_threshold.py` τυπώνει πλέον και τις usability στήλες ώστε η απόφαση να μην ξαναγίνει
       στα τυφλά. Τα per-trait βέλτιστα συγκρούονται (0.4 έως 0.95) — per-trait thresholds θα ήταν
       overfitting σε support 4-5 παικτών.
+- [x] **UI rebuild — Industry dark** (Phase 12) — υλοποίηση του `ProspectMatch.dc.html` από το
+      Claude Design πάνω στις 4 οθόνες. Recharts → raw SVG radar (bundle ~600 KB → **219 KB**).
+      Η υλοποίηση ανέδειξε **τρία πραγματικά σφάλματα** που το παλιό UI έκρυβε, όλα διορθωμένα
+      στο serialization layer (`backend/engine.py`, το `src/` αμετάβλητο) και κλειδωμένα με
+      `tests/test_api_serialization.py` (64 → **73 tests**):
+      **(α)** Το breakdown έδειχνε features που ο χρήστης **δεν** ζήτησε και που δεν βάρυναν
+      καθόλου στο distance (το `explain_match()` γεμίζει top_n=4 με argsort πάνω σε όλα τα
+      features), και τα ίδια features **δύο φορές** (matching ∩ diverging ≠ ∅).
+      **(β)** Οι imputed τιμές παρουσιάζονταν ως μετρημένες — το row-level coverage έλεγε
+      "50%" χωρίς να λέει *ποιο* 50%. Νέο `available` flag ανά entry.
+      **(γ)** Το `shortLabel` client-side μάντευε με regex πάνω στο label: "Height (cm)" → "cm".
+      Νέα `SHORT_LABELS` στο `metadata.py` ως single source of truth.
+      Επιπλέον: το `/stats` σερβίρει πλέον **πραγματικές κατανομές** (24-bin histogram + 101
+      quantiles ανά feature, μετρημένα μόνο σε μη-imputed rows) ώστε το sparkline του builder
+      και το «league pNN» readout να μη στηρίζονται σε εικασία.
 - [x] **Archetype triage + δύο design fixes** (Phase 10) — το `validation/triage_archetypes.py`
       κατηγοριοποιεί τα misses ώστε να ξεχωρίζει η **τεχνική** δουλειά από την **απόφαση ground truth**.
       Ευρήματα: position mismatch **0** (το `PRESET_POSITIONS` δουλεύει), και το `versatile_wing_defender`

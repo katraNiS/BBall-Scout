@@ -17,6 +17,10 @@ const HEADERS = [
   "height_cm",
   "weight_lbs",
   "similarity_pct",
+  // Χωρίς αυτό το export αφαιρεί ακριβώς το σήμα που το UI βάζει σε κάθε γραμμή:
+  // ένα 84% με κάλυψη 50% δεν είναι το ίδιο νούμερο με ένα 84% με κάλυψη 100%,
+  // και σε ένα spreadsheet δεν υπάρχει τίποτα να το θυμίσει.
+  "coverage_pct",
   "final_score",
   "active_traits",
 ];
@@ -31,6 +35,7 @@ export function matchResultsToCsv(results: MatchResult[]): string {
     r.height_cm ?? "",
     r.weight_lbs ?? "",
     Math.round(r.similarity * 100),
+    Math.round(r.coverage * 100),
     r.final_score.toFixed(4),
     r.active_traits.join("; "),
   ]);

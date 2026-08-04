@@ -4,8 +4,9 @@ import { api, ApiError } from "../api";
 import type { MatchResult, StatMeta } from "../types";
 import { useMeta } from "../MetaContext";
 import StatBuilder, { type Controls } from "../components/StatBuilder";
-import ResultCard from "../components/ResultCard";
+import ResultRow from "../components/ResultRow";
 import { kgToLbs, roundToStep } from "../units";
+import { compactCount, shortLabel } from "../statFormat";
 import type { FromProspectPrefill } from "../prospectUtils";
 import { matchResultsToCsv, downloadCsv } from "../csv";
 
@@ -29,7 +30,7 @@ function parseSeasonRange(range: string | null | undefined): [number, number] | 
 }
 
 export default function SearchScreen() {
-  const { stats, traits, traitLabels, backendOk } = useMeta();
+  const { stats, traits, traitLabels } = useMeta();
   const location = useLocation();
   const [controls, setControls] = useState<Controls>({});
 
@@ -38,9 +39,15 @@ export default function SearchScreen() {
   const [topN, setTopN] = useState(10);
 
   const [results, setResults] = useState<MatchResult[] | null>(null);
+  // Το query που παρήγαγε τα `results` — κρατιέται ξεχωριστά από τα ζωντανά
+  // controls, ώστε το coverage/breakdown να περιγράφει την αναζήτηση που
+  // *έτρεξε*, όχι αυτή που ο χρήστης άρχισε να πληκτρολογεί μετά.
+  const [ranQuery, setRanQuery] = useState<{ keys: string[]; weights: Record<string, number> } | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [positionFilter, setPositionFilter] = useState("");
+  const [requireFullCoverage, setRequireFullCoverage] = useState(false);
 
   // Prefill source: παραμένει ζωντανό ακόμα κι αν κρύψει ο χρήστης το banner, ώστε
   // το "Αποθήκευση comps" να μένει διαθέσιμο ανεξάρτητα από το banner.
@@ -121,6 +128,12 @@ export default function SearchScreen() {
     [stats, controls]
   );
 
+  const statByKey = useMemo(() => {
+    const m: Record<string, StatMeta> = {};
+    for (const s of stats) m[s.key] = s;
+    return m;
+  }, [stats]);
+
   const patchControl = (key: string, patch: Partial<Controls[string]>) =>
     setControls((prev) => ({ ...prev, [key]: { ...prev[key], ...patch } }));
 
@@ -145,33 +158,70 @@ export default function SearchScreen() {
     setLoading(true);
     setError(null);
     setSaveCompsMsg(null);
+    const query = buildQuery();
     try {
       const res = await api.similar({
-        ...buildQuery(),
+        ...query,
         top_n: topN,
         prospect_id: prefillSource?.id ?? null,
       });
       setResults(res.results);
+      setRanQuery({
+        keys: Object.keys(query.stats),
+        weights: Object.fromEntries(Object.keys(query.stats).map((k) => [k, controls[k].weight])),
+      });
+      setExpanded(res.results[0] ? rowKey(res.results[0]) : null);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
       setResults(null);
+      setRanQuery(null);
     } finally {
       setLoading(false);
     }
   };
 
-  // ── Save comps στον prospect που ξεκίνησε αυτό το search (Direction 2) ─────
-  // Σώζει τα filteredResults (ό,τι βλέπει ο χρήστης) όχι το ωμό results — αν έχει
-  // φιλτράρει κατά θέση, το comp set πρέπει να αντανακλά αυτό που κοιτάει.
+  const resetBuilder = () => {
+    setControls((prev) => {
+      const next: Controls = {};
+      for (const [key, c] of Object.entries(prev)) next[key] = { ...c, enabled: false, weight: 1 };
+      return next;
+    });
+    setSelectedTraits([]);
+    setResults(null);
+    setRanQuery(null);
+    setError(null);
+  };
+
+  // "Χρήση ως νέο target": φορτώνει τις τιμές ενός παίκτη πίσω στον builder ώστε
+  // ο χρήστης να ψάξει "ποιος άλλος μοιάζει με αυτόν" χωρίς να ξαναχτίσει προφίλ.
+  const useAsTarget = (values: Record<string, number>) => {
+    setControls((prev) => {
+      const next = { ...prev };
+      for (const [key, value] of Object.entries(values)) {
+        const meta = statByKey[key];
+        if (!next[key] || !meta) continue;
+        next[key] = {
+          ...next[key],
+          enabled: true,
+          value: roundToStep(value, meta.step, meta.min, meta.max),
+        };
+      }
+      return next;
+    });
+  };
+
+  // ── Save comps στον prospect που ξεκίνησε αυτό το search ───────────────────
+  // Σώζει τα visibleResults (ό,τι βλέπει ο χρήστης) όχι το ωμό results — αν έχει
+  // φιλτράρει, το comp set πρέπει να αντανακλά αυτό που κοιτάει.
   const handleSaveComps = async () => {
-    if (!prefillSource || !filteredResults?.length) return;
+    if (!prefillSource || !visibleResults?.length) return;
     setSavingComps(true);
     setSaveCompsMsg(null);
     try {
       await api.prospects.addComp(prefillSource.id, {
         label: null,
         query: buildQuery(),
-        results: filteredResults.map((r) => ({
+        results: visibleResults.map((r) => ({
           player_name: r.player_name,
           season: r.season,
           similarity: r.similarity,
@@ -187,225 +237,353 @@ export default function SearchScreen() {
     }
   };
 
-  const statByKey = useMemo(() => {
-    const m: Record<string, StatMeta> = {};
-    for (const s of stats) m[s.key] = s;
-    return m;
-  }, [stats]);
-
-  const showRadar = enabledKeys.length >= 3;
-
-  // ── Position filter + CSV export (client-side — τα δεδομένα ήδη υπάρχουν) ──
-  const filteredResults = useMemo(() => {
+  // ── Client-side φίλτρα (τα δεδομένα ήδη υπάρχουν) ──────────────────────────
+  const visibleResults = useMemo(() => {
     if (!results) return null;
-    return positionFilter ? results.filter((r) => r.position_group === positionFilter) : results;
-  }, [results, positionFilter]);
+    let out = results;
+    if (positionFilter) out = out.filter((r) => r.position_group === positionFilter);
+    if (requireFullCoverage) out = out.filter((r) => r.coverage > 0.999);
+    return out;
+  }, [results, positionFilter, requireFullCoverage]);
+
+  // Το coverage strip εμφανίζεται μόνο όταν έχει κάτι να πει: κάποιο match
+  // κρίθηκε σε λιγότερες διαστάσεις από όσες ζητήθηκαν.
+  const coverageSummary = useMemo(() => {
+    if (!visibleResults?.length) return null;
+    const partial = visibleResults.filter((r) => r.coverage < 0.999);
+    if (!partial.length) return null;
+    const mean = visibleResults.reduce((t, r) => t + r.coverage, 0) / visibleResults.length;
+    return { partial: partial.length, total: visibleResults.length, mean };
+  }, [visibleResults]);
 
   const handleExportCsv = () => {
-    if (!filteredResults?.length) return;
+    if (!visibleResults?.length) return;
     const dateStr = new Date().toISOString().slice(0, 10);
-    downloadCsv(`prospectmatch-results-${dateStr}.csv`, matchResultsToCsv(filteredResults));
+    downloadCsv(`prospectmatch-results-${dateStr}.csv`, matchResultsToCsv(visibleResults));
   };
 
+  const requested = ranQuery?.keys.length ?? enabledKeys.length;
+
   return (
-    <div className="layout">
-      {/* ── Sidebar ── */}
-      <aside className="sidebar">
-        <h1>🏀 ProspectMatch</h1>
-        <div className="subtitle">NBA Player Similarity Engine</div>
-
-        <section>
-          <h3>Season Range</h3>
-          <div className="range-row">
-            <input
-              type="range"
-              min={1996}
-              max={2025}
-              value={yearRange[0]}
-              onChange={(e) =>
-                setYearRange([Math.min(+e.target.value, yearRange[1]), yearRange[1]])
-              }
-            />
-            <input
-              type="range"
-              min={1996}
-              max={2025}
-              value={yearRange[1]}
-              onChange={(e) =>
-                setYearRange([yearRange[0], Math.max(+e.target.value, yearRange[0])])
-              }
-            />
-          </div>
-          <div className="range-val" style={{ textAlign: "left" }}>
-            {yearRange[0]} – {yearRange[1]}
-          </div>
-        </section>
-
-        <section>
-          <h3>Trait Boost</h3>
-          <div className="hint">Μικρό bonus για παίκτες με αυτά τα traits — δεν αποκλείει κανέναν.</div>
-          <select
-            multiple
-            value={selectedTraits}
-            onChange={(e) =>
-              setSelectedTraits(Array.from(e.target.selectedOptions, (o) => o.value))
-            }
-          >
-            {traits.map((t) => (
-              <option key={t} value={t}>
-                {traitLabels[t] ?? t}
-              </option>
-            ))}
-          </select>
-        </section>
-
-        <section>
-          <h3>Αριθμός αποτελεσμάτων: {topN}</h3>
-          <div className="range-row">
-            <input
-              type="range"
-              min={5}
-              max={20}
-              value={topN}
-              onChange={(e) => setTopN(+e.target.value)}
-            />
-          </div>
-        </section>
-
-        <div className="status-line">
-          <span className={`status-dot ${backendOk ? "ok" : "down"}`} />
-          {backendOk ? `Connected — ${api.base}` : "Backend offline"}
-        </div>
-      </aside>
-
-      {/* ── Main ── */}
-      <main className="main">
-        <header>
-          <h2>ProspectMatch</h2>
-          <p className="lede">
-            Ορίσε το player profile που ψάχνεις — stats + βάρη — και βρες τους πιο όμοιους
-            παίκτες της NBA.
-          </p>
-        </header>
-        <hr className="divider" />
-
-        {(prefillSource || restoredFromHistory) && !bannerDismissed && (
-          <div className="prefill-banner">
-            {prefillSource ? (
-              <>
-                Prefilled από{" "}
-                <Link to={`/prospects/${prefillSource.id}/edit`}>{prefillSource.name}</Link>
-              </>
-            ) : (
-              "Επαναφορά προηγούμενης αναζήτησης"
-            )}
-            <button className="link-btn" onClick={() => setBannerDismissed(true)}>
-              Κλείσιμο
-            </button>
-          </div>
-        )}
-
-        <StatBuilder stats={stats} controls={controls} onChange={patchControl} />
-
-        {enabledKeys.length > 0 && (
-          <div className="summary-pills">
-            {enabledKeys.map((k, i) => {
-              const c = controls[k];
-              const meta = statByKey[k];
-              const dec = meta.step < 1 ? (meta.step < 0.5 ? 2 : 1) : 0;
-              return (
-                <span key={k}>
-                  {i > 0 && " · "}
-                  <b>{meta.label}</b>: {c.value.toFixed(dec)}
-                  {meta.unit}
-                  {c.weight !== 1 && <span className="wt"> ×{c.weight}</span>}
-                </span>
-              );
-            })}
-          </div>
-        )}
-
-        <button
-          className="run-btn"
-          disabled={enabledKeys.length === 0 || loading}
-          onClick={runSearch}
-        >
-          {loading ? (
+    <div className="screen">
+      {(prefillSource || restoredFromHistory) && !bannerDismissed && (
+        <div className="banner">
+          {prefillSource ? (
             <>
-              <span className="spinner" /> &nbsp;Αναζήτηση...
+              Prefilled από <Link to={`/prospects/${prefillSource.id}/edit`}>{prefillSource.name}</Link>
             </>
-          ) : enabledKeys.length === 0 ? (
-            "Άναψε τουλάχιστον ένα stat"
           ) : (
-            "🔍 Βρες παίκτες"
+            "Επαναφορά προηγούμενης αναζήτησης"
           )}
-        </button>
+          <button type="button" className="linkbtn muted push" onClick={() => setBannerDismissed(true)}>
+            Κλείσιμο
+          </button>
+        </div>
+      )}
 
-        {error && <div className="error-box">{error}</div>}
+      <div className="search-layout">
+        {/* ── Stat builder rail ── */}
+        <aside className="builder">
+          <StatBuilder stats={stats} controls={controls} onChange={patchControl} />
 
-        {results && !loading && (
-          <>
-            {results.length === 0 ? (
-              <div className="state-msg">
-                Δεν βρέθηκαν αποτελέσματα. Δοκίμασε να διευρύνεις το season range.
-              </div>
-            ) : (
-              <>
-                <div className="results-toolbar">
-                  <h3 className="results-head">
-                    Top {filteredResults?.length ?? 0} matches
-                    {positionFilter && <span className="results-head-filtered"> (φιλτραρισμένα)</span>}
-                  </h3>
-                  <label className="sort-label">
-                    Θέση:&nbsp;
-                    <select
-                      value={positionFilter}
-                      onChange={(e) => setPositionFilter(e.target.value)}
-                    >
-                      <option value="">Όλες</option>
-                      {POSITION_FILTERS.map((p) => (
-                        <option key={p} value={p}>
-                          {p}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <button
-                    className="link-btn export-csv-btn"
-                    disabled={!filteredResults?.length}
-                    onClick={handleExportCsv}
-                  >
-                    ⬇ Export CSV
-                  </button>
+          <div className="builder-foot">
+            <div className="label">Archetype traits — προαιρετικά</div>
+            <div className="builder-traits">
+              {traits.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  className={`traitchip${selectedTraits.includes(t) ? " on" : ""}`}
+                  title="Μικρό bonus στο score — δεν αποκλείει κανέναν παίκτη"
+                  onClick={() =>
+                    setSelectedTraits((prev) =>
+                      prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]
+                    )
+                  }
+                >
+                  {traitLabels[t] ?? t}
+                </button>
+              ))}
+            </div>
+
+            <div className="builder-foot-grid">
+              <div>
+                <div className="label" style={{ marginBottom: 5 }}>
+                  Season range
                 </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <input
+                    className="input mono"
+                    type="number"
+                    min={1996}
+                    max={2025}
+                    value={yearRange[0]}
+                    aria-label="Από σεζόν"
+                    onChange={(e) =>
+                      setYearRange([Math.min(+e.target.value || 1996, yearRange[1]), yearRange[1]])
+                    }
+                  />
+                  <span className="sub-mono">→</span>
+                  <input
+                    className="input mono"
+                    type="number"
+                    min={1996}
+                    max={2025}
+                    value={yearRange[1]}
+                    aria-label="Έως σεζόν"
+                    onChange={(e) =>
+                      setYearRange([yearRange[0], Math.max(+e.target.value || 2025, yearRange[0])])
+                    }
+                  />
+                </div>
+              </div>
+              <div>
+                <div className="label" style={{ marginBottom: 5 }}>
+                  Αποτελέσματα
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <input
+                    type="range"
+                    min={5}
+                    max={20}
+                    value={topN}
+                    aria-label="Πλήθος αποτελεσμάτων"
+                    style={{ flex: 1 }}
+                    onChange={(e) => setTopN(+e.target.value)}
+                  />
+                  <span className="mono" style={{ fontSize: 13, color: "var(--text)" }}>
+                    {topN}
+                  </span>
+                </div>
+              </div>
+            </div>
 
-                {prefillSource && (
-                  <div className="save-comps-row">
-                    <button
-                      className="run-btn save-comps-btn"
-                      disabled={savingComps || !filteredResults?.length}
-                      onClick={handleSaveComps}
-                    >
-                      {savingComps
-                        ? "Αποθήκευση..."
-                        : `💾 Αποθήκευση αυτών των comps στον/στην ${prefillSource.name}`}
-                    </button>
-                    {saveCompsMsg && <span className="save-comps-msg">{saveCompsMsg}</span>}
-                  </div>
-                )}
-
-                {filteredResults?.length === 0 ? (
-                  <div className="state-msg">Καμία θέση "{positionFilter}" στα αποτελέσματα.</div>
+            <div className="builder-run">
+              <button
+                type="button"
+                className="btn btn-primary btn-lg"
+                style={{ flex: 1 }}
+                disabled={enabledKeys.length === 0 || loading}
+                onClick={runSearch}
+              >
+                {loading ? (
+                  <>
+                    <span className="spinner" /> Αναζήτηση
+                  </>
+                ) : enabledKeys.length === 0 ? (
+                  "Άναψε ένα stat"
                 ) : (
-                  filteredResults?.map((r) => (
-                    <ResultCard key={`${r.player_name}-${r.season}`} r={r} showRadar={showRadar} />
-                  ))
+                  `Run match — ${enabledKeys.length} stats`
                 )}
-              </>
+              </button>
+              <button type="button" className="btn btn-lg" onClick={resetBuilder} disabled={loading}>
+                Reset
+              </button>
+            </div>
+          </div>
+        </aside>
+
+        {/* ── Matches ── */}
+        <section className="matches">
+          <div className="matches-head">
+            <div>
+              <h4 className="h-pane">Matches</h4>
+              <div className="sub-mono">
+                {results
+                  ? `${visibleResults?.length ?? 0} από ${results.length} · weighted RMS σε z-scores`
+                  : "Όρισε ένα προφίλ και τρέξε το matching"}
+              </div>
+            </div>
+
+            <div className="push">
+              <span className="label">Θέση</span>
+              <div className="seg">
+                <button
+                  type="button"
+                  className={`seg-opt${positionFilter === "" ? " on" : ""}`}
+                  onClick={() => setPositionFilter("")}
+                >
+                  ALL
+                </button>
+                {POSITION_FILTERS.map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    className={`seg-opt${positionFilter === p ? " on" : ""}`}
+                    onClick={() => setPositionFilter(p)}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+              {prefillSource && (
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  disabled={savingComps || !visibleResults?.length}
+                  onClick={handleSaveComps}
+                  title={`Αποθήκευση comp set στον/στην ${prefillSource.name}`}
+                >
+                  {savingComps ? "Αποθήκευση…" : "Save comps"}
+                </button>
+              )}
+              <button
+                type="button"
+                className="btn btn-sm"
+                disabled={!visibleResults?.length}
+                onClick={handleExportCsv}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M12 3v12m0 0 4-4m-4 4-4-4M4 19h16" />
+                </svg>
+                Export CSV
+              </button>
+            </div>
+          </div>
+
+          {saveCompsMsg && (
+            <div className="banner">
+              {saveCompsMsg}
+              <button type="button" className="linkbtn muted push" onClick={() => setSaveCompsMsg(null)}>
+                Κλείσιμο
+              </button>
+            </div>
+          )}
+
+          {coverageSummary && (
+            <div className="notice">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c58e4a" strokeWidth="1.5">
+                <path d="M12 9v4m0 4h.01M10.3 3.9 2.4 17.5A1.9 1.9 0 0 0 4 20.4h16a1.9 1.9 0 0 0 1.6-2.9L13.7 3.9a1.9 1.9 0 0 0-3.4 0Z" />
+              </svg>
+              <span>
+                Μέση κάλυψη <code>{Math.round(coverageSummary.mean * 100)}%</code> —{" "}
+                {coverageSummary.partial} από {coverageSummary.total} σεζόν δεν έχουν όλα τα stats που
+                ζήτησες (tracking data ξεκινά το 2016-17, defensive matchups το 2013-14). Το score τους
+                έχει ήδη μειωθεί ανάλογα.
+              </span>
+              <button
+                type="button"
+                className="linkbtn push"
+                style={{ color: "var(--warn)" }}
+                onClick={() => setRequireFullCoverage((v) => !v)}
+              >
+                {requireFullCoverage ? "Δείξε ξανά όλα" : "Μόνο πλήρη κάλυψη"}
+              </button>
+            </div>
+          )}
+
+          {error && (
+            <div className="notice">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c58e4a" strokeWidth="1.5">
+                <path d="M12 9v4m0 4h.01M10.3 3.9 2.4 17.5A1.9 1.9 0 0 0 4 20.4h16a1.9 1.9 0 0 0 1.6-2.9L13.7 3.9a1.9 1.9 0 0 0-3.4 0Z" />
+              </svg>
+              <span>{error}</span>
+              <button type="button" className="linkbtn push" style={{ color: "var(--warn)" }} onClick={runSearch}>
+                Επανάληψη
+              </button>
+            </div>
+          )}
+
+          <div className="matches-cols">
+            <span className="col-rank">#</span>
+            <span className="col-name">Player / season</span>
+            <span className="col-arch">Archetype</span>
+            <span className="col-cov">Coverage</span>
+            <span className="col-radar" style={{ textAlign: "center" }}>
+              Profile fit
+            </span>
+            <span className="col-sim">Similarity</span>
+            <span className="col-caret" />
+          </div>
+
+          <div className="matches-body">
+            {loading && (
+              <div className="loading">
+                <span className="spinner" /> Υπολογισμός αποστάσεων σε {enabledKeys.length} διαστάσεις…
+              </div>
             )}
-          </>
-        )}
-      </main>
+
+            {!loading && !results && (
+              <div className="empty" style={{ border: 0, padding: "72px 24px" }}>
+                <div className="empty-title">Κανένα query ακόμα</div>
+                <div className="empty-body">
+                  Πρόσθεσε stats στα αριστερά, δώσε τιμές και βάρη, και πάτα <b>Run match</b>. Η
+                  απόσταση υπολογίζεται μόνο πάνω στις διαστάσεις που όρισες.
+                </div>
+              </div>
+            )}
+
+            {!loading && results && results.length === 0 && (
+              <div className="empty" style={{ border: 0, padding: "72px 24px" }}>
+                <div className="empty-title">0 season-rows ταιριάζουν</div>
+                <div className="empty-body">
+                  Το εύρος {yearRange[0]}–{yearRange[1]} δεν αφήνει τίποτα. Χαλάρωσε ένα περιορισμό —
+                  διεύρυνε τις σεζόν ή αφαίρεσε ένα ακραίο stat.
+                </div>
+              </div>
+            )}
+
+            {!loading && visibleResults && results && results.length > 0 && visibleResults.length === 0 && (
+              <div className="empty" style={{ border: 0, padding: "72px 24px" }}>
+                <div className="empty-title">Τα φίλτρα έκοψαν όλα τα αποτελέσματα</div>
+                <div className="empty-body">
+                  {compactCount(results.length)} matches υπάρχουν, αλλά κανένα δεν περνά τα ενεργά
+                  φίλτρα{positionFilter && ` (θέση ${positionFilter})`}
+                  {requireFullCoverage && " (πλήρης κάλυψη)"}.
+                </div>
+                {/* Το coverage notice — που κρατά το toggle — εξαφανίζεται όταν
+                    δεν μένει κανένα ορατό row, οπότε χωρίς αυτά τα κουμπιά ο
+                    χρήστης κλειδώνεται σε ένα φίλτρο που δεν μπορεί να λύσει. */}
+                <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                  {requireFullCoverage && (
+                    <button type="button" className="btn btn-sm" onClick={() => setRequireFullCoverage(false)}>
+                      Δείξε και τα μερικά
+                    </button>
+                  )}
+                  {positionFilter && (
+                    <button type="button" className="btn btn-sm" onClick={() => setPositionFilter("")}>
+                      Καθάρισε τη θέση
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {!loading &&
+              visibleResults?.map((r) => {
+                const key = rowKey(r);
+                return (
+                  <ResultRow
+                    key={key}
+                    r={r}
+                    requested={requested}
+                    weights={ranQuery?.weights ?? {}}
+                    statByKey={statByKey}
+                    open={expanded === key}
+                    onToggle={() => setExpanded((prev) => (prev === key ? null : key))}
+                    onUseAsTarget={useAsTarget}
+                    onSaveComp={prefillSource ? handleSaveComps : undefined}
+                  />
+                );
+              })}
+          </div>
+
+          {ranQuery && visibleResults && visibleResults.length > 0 && (
+            <div className="statusstrip" style={{ borderTop: "1px solid var(--line-soft)", borderBottom: 0 }}>
+              <span>
+                {ranQuery.keys.map((k) => (statByKey[k] ? shortLabel(statByKey[k]) : k)).join(" · ")}
+              </span>
+              <span className="push">
+                {yearRange[0]}–{yearRange[1]}
+              </span>
+            </div>
+          )}
+        </section>
+      </div>
     </div>
   );
+}
+
+function rowKey(r: MatchResult): string {
+  return `${r.player_name}::${r.season}`;
 }

@@ -3,6 +3,8 @@
 export interface StatMeta {
   key: string;
   label: string;
+  /** Σύντομο key ("TS%", "DRTG") για πυκνά UI — SHORT_LABELS στο backend/metadata.py. */
+  short?: string;
   group: string;
   min: number;
   max: number;
@@ -11,6 +13,17 @@ export interface StatMeta {
   is_pct: boolean;
   unit: string;
   format: string;
+  /**
+   * Πραγματική κατανομή του feature στο dataset — 24 bins πάνω στο [min, max],
+   * κανονικοποιημένα στο 1.0. Μετρημένα ΜΟΝΟ σε rows με πραγματικά δεδομένα
+   * (avail_* mask), όχι στα group-median imputed. Optional: το backend τα
+   * παραλείπει αν το /stats ζητηθεί πριν φορτώσει το dataset.
+   */
+  dist?: number[];
+  /** 101 quantiles (p0…p100) σε display units — για ακριβές percentile client-side. */
+  pcts?: number[];
+  /** Πλήθος rows με πραγματικά (μη imputed) δεδομένα για αυτό το feature. */
+  n_rows?: number;
 }
 
 export interface StatsMetaResponse {
@@ -34,6 +47,13 @@ export interface ArchetypesResponse {
 export interface ExplainEntry {
   feature: string;
   label: string;
+  /**
+   * false όταν η τιμή του παίκτη είναι group-median imputed (το stat δεν
+   * καταγραφόταν εκείνη τη σεζόν). Το availability masking το έχει ήδη
+   * αποκλείσει από το distance — εδώ το δηλώνουμε ώστε το breakdown να μη
+   * δείχνει imputed αριθμό σαν μετρημένο.
+   */
+  available?: boolean;
   user_value: number;
   player_value: number;
   user_display: string;
