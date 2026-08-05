@@ -29,29 +29,40 @@ function sh(cmd) {
   }
 }
 
-/** PIDs που ακούν (LISTEN) στη δοθείσα πόρτα. */
-function pidsOnPort(port) {
-  const pids = new Set();
+/**
+ * PIDs που ακούν (LISTEN) σε καθεμία από τις δοθείσες πόρτες.
+ *
+ * Windows: ΜΙΑ κλήση `netstat` για όλες τις πόρτες μαζί — η netstat κάνει έτσι
+ * κι αλλιώς full-table dump (δεν φιλτράρει server-side ανά πόρτα), οπότε καλώντας
+ * τη ξεχωριστά ανά πόρτα θα επαναλαμβάναμε την ίδια πλήρη σάρωση Ν φορές.
+ * POSIX: lsof φιλτράρει ήδη server-side μέσω `-iTCP:<port>`, οπότε μία κλήση
+ * ανά πόρτα παραμένει φθηνή — δεν χρειάζεται ενοποίηση.
+ */
+function pidsByPort(ports) {
+  const result = new Map(ports.map((p) => [p, new Set()]));
+
   if (isWin) {
-    // netstat -ano: γραμμές "  TCP  127.0.0.1:8000  ...  LISTENING  <pid>"
     const out = sh("netstat -ano -p TCP");
     for (const line of out.split(/\r?\n/)) {
       if (!/LISTENING/i.test(line)) continue;
       const cols = line.trim().split(/\s+/);
       const local = cols[1] || "";
       const pid = cols[cols.length - 1];
-      if (local.endsWith(`:${port}`) && /^\d+$/.test(pid) && pid !== "0") {
-        pids.add(pid);
+      if (!/^\d+$/.test(pid) || pid === "0") continue;
+      for (const port of ports) {
+        if (local.endsWith(`:${port}`)) result.get(port).add(pid);
       }
     }
   } else {
-    // lsof: PIDs που ακούν στην πόρτα
-    const out = sh(`lsof -nP -iTCP:${port} -sTCP:LISTEN -t`);
-    for (const pid of out.split(/\r?\n/)) {
-      if (/^\d+$/.test(pid.trim())) pids.add(pid.trim());
+    for (const port of ports) {
+      const out = sh(`lsof -nP -iTCP:${port} -sTCP:LISTEN -t`);
+      for (const pid of out.split(/\r?\n/)) {
+        if (/^\d+$/.test(pid.trim())) result.get(port).add(pid.trim());
+      }
     }
   }
-  return [...pids];
+
+  return result;
 }
 
 function killPid(pid) {
@@ -72,9 +83,10 @@ function isFree(port) {
 
 async function main() {
   let stillBusy = false;
+  const pidsMap = pidsByPort(PORTS);
 
   for (const port of PORTS) {
-    const pids = pidsOnPort(port);
+    const pids = [...pidsMap.get(port)];
 
     if (pids.length === 0) {
       console.log(`[preflight] port ${port}: free ✓`);
@@ -99,17 +111,21 @@ async function main() {
     return;
   }
 
-  // Επιβεβαίωση ότι ελευθερώθηκαν (το kill μπορεί να αργήσει λίγο)
-  for (const port of PORTS) {
-    let free = false;
+  // Επιβεβαίωση ότι ελευθερώθηκαν (το kill μπορεί να αργήσει λίγο) — παράλληλα
+  // ανά πόρτα αντί σειριακά, ώστε το worst-case wait να μην αθροίζεται ανά πόρτα.
+  async function waitFree(port) {
     for (let i = 0; i < 10; i++) {
-      if (await isFree(port)) {
-        free = true;
-        break;
-      }
+      if (await isFree(port)) return true;
       await new Promise((r) => setTimeout(r, 150));
     }
-    if (!free) {
+    return false;
+  }
+
+  const confirmations = await Promise.all(PORTS.map(async (port) => [port, await waitFree(port)]));
+  const stillBusyPorts = confirmations.filter(([, free]) => !free).map(([port]) => port);
+
+  if (stillBusyPorts.length > 0) {
+    for (const port of stillBusyPorts) {
       console.error(
         `[preflight] ✗ port ${port} παραμένει κατειλημμένη. ` +
           `Κλείσ' την χειροκίνητα και ξανατρέξε:\n` +
@@ -117,8 +133,8 @@ async function main() {
             ? `    netstat -ano | findstr :${port}\n    taskkill /F /PID <pid>`
             : `    lsof -iTCP:${port} -sTCP:LISTEN\n    kill -9 <pid>`)
       );
-      process.exit(1);
     }
+    process.exit(1);
   }
 
   console.log("[preflight] ports έτοιμες — starting dev stack.");

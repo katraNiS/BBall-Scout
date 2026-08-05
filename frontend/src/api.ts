@@ -9,6 +9,11 @@ import type {
   SimilarRequest,
   SimilarResponse,
   ClassifyResponse,
+  Prospect,
+  ProspectCreate,
+  ProspectUpdate,
+  CompCreate,
+  SearchHistoryEntry,
 } from "./types";
 
 const BASE =
@@ -45,6 +50,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new ApiError(res.status, typeof detail === "string" ? detail : JSON.stringify(detail));
   }
+  // 204 (π.χ. DELETE /prospects/{id}) δεν έχει body — res.json() θα έσκαγε.
+  if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
 
@@ -71,6 +78,25 @@ export const api = {
 
   players: (q: string) =>
     request<{ players: string[] }>(`/players?q=${encodeURIComponent(q)}`),
+
+  prospects: {
+    list: () => request<Prospect[]>("/prospects"),
+    get: (id: string) => request<Prospect>(`/prospects/${id}`),
+    create: (body: ProspectCreate) =>
+      request<Prospect>("/prospects", { method: "POST", body: JSON.stringify(body) }),
+    update: (id: string, patch: ProspectUpdate) =>
+      request<Prospect>(`/prospects/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+    remove: (id: string) => request<void>(`/prospects/${id}`, { method: "DELETE" }),
+    addComp: (id: string, body: CompCreate) =>
+      request<Prospect>(`/prospects/${id}/comps`, { method: "POST", body: JSON.stringify(body) }),
+    removeComp: (id: string, compId: string) =>
+      request<void>(`/prospects/${id}/comps/${compId}`, { method: "DELETE" }),
+  },
+
+  searches: {
+    list: () => request<SearchHistoryEntry[]>("/searches"),
+    clear: () => request<void>("/searches", { method: "DELETE" }),
+  },
 };
 
 export { ApiError };

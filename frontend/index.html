@@ -1,9 +1,24 @@
 <!doctype html>
-<html lang="en">
+<html lang="el">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ProspectMatch</title>
+    <!--
+      Industry design system: Barlow (body) + Barlow Condensed (headings/labels).
+      Καμία από τις δύο ΔΕΝ έχει greek subset, οπότε τα ελληνικά πέφτουν
+      per-glyph στο επόμενο family του stack (Segoe UI / Roboto Condensed) — γι'
+      αυτό το stack στο styles.css ονομάζει ρητά greek-capable fallbacks αντί για
+      σκέτο sans-serif. Σε offline packaged build δεν φορτώνει τίποτα και όλα
+      πέφτουν στο Segoe UI: το layout δεν αλλάζει, γιατί τα μεγέθη, τα
+      letter-spacing και τα uppercase ορίζονται ρητά.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@400;500;600;700&family=Roboto+Condensed:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
   </head>
   <body>
     <div id="root"></div>

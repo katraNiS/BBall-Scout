@@ -10,7 +10,7 @@ Desktop migration του Streamlit scouting tool. Τρία layers:
                │ loads
 ┌──────────────▼──────────────┐        HTTP :8000
 │  React SPA (frontend/)       │ ─────────────────────► ┌──────────────────────┐
-│  Vite + TS + Recharts        │ ◄───────────────────── │  FastAPI (backend/)   │
+│  Vite + TS (SVG radar)       │ ◄───────────────────── │  FastAPI (backend/)   │
 └─────────────────────────────┘   /stats /similar ...   │  wraps src/ engine    │
                                                           └──────────┬───────────┘
                                                                      │ imports
@@ -38,8 +38,33 @@ Desktop migration του Streamlit scouting tool. Τρία layers:
 | GET    | `/stats`      | feature metadata (ranges/labels/groups) + traits — ο client χτίζει το stat builder από αυτό |
 | GET    | `/archetypes` | τα compound archetype presets (traits + eligible positions) |
 | GET    | `/players?q=` | autocomplete ονομάτων (diacritic-insensitive) |
-| POST   | `/similar`    | top-N όμοιοι παίκτες για user profile |
+| POST   | `/similar`    | top-N όμοιοι παίκτες για user profile (καταγράφει και search history entry) |
 | POST   | `/classify`   | archetype + trait scores ενός πραγματικού παίκτη |
+| GET    | `/prospects`  | λίστα prospects, πιο πρόσφατα ενημερωμένοι πρώτα |
+| GET    | `/prospects/{id}` | ένας prospect, ή 404 |
+| POST   | `/prospects`  | νέος prospect (μόνο first/last name υποχρεωτικά) |
+| PATCH  | `/prospects/{id}` | partial update |
+| DELETE | `/prospects/{id}` | διαγραφή, 204 |
+| POST   | `/prospects/{id}/comps` | αποθήκευση ενός NBA comp set πάνω στον prospect |
+| DELETE | `/prospects/{id}/comps/{comp_id}` | διαγραφή ενός αποθηκευμένου comp set |
+| GET    | `/searches`   | search history, πιο πρόσφατα πρώτα (max 20) |
+| DELETE | `/searches`   | καθαρισμός όλου του search history |
+
+Τα `/prospects*` και `/searches*` **δεν** περιμένουν να φορτωθεί το NBA dataset
+(όχι `_require_ready()`) — μένουν χρηστικά ενώ το `/health` ακόμα δείχνει `loading`.
+
+### Prospect & search history storage
+
+`backend/store.py` κρατά δύο JSON flat files, `prospects.json` και `searches.json`,
+σε φάκελο που αποφασίζεται έτσι:
+
+1. `PROSPECTMATCH_DATA_DIR` env var, αν υπάρχει (το θέτει το `electron/main.cjs`
+   στο `app.getPath("userData")` όταν spawn-άρει τον packaged backend).
+2. Αλλιώς `./.prospectmatch-data/` — repo-local, μόνο για dev (gitignored).
+
+Κάθε write είναι atomic (temp file → `os.replace()`) και προστατεύεται από
+`threading.Lock`, γιατί ο uvicorn τρέχει sync handlers σε threadpool. Τα comps
+πάνω σε κάθε prospect και το search history είναι capped στα πιο πρόσφατα 20.
 
 ### Data format (ΚΡΙΣΙΜΟ)
 
@@ -70,6 +95,23 @@ npm run build    # → frontend/dist/ (base "./" ώστε να τρέχει με
 ```
 
 Το API base URL είναι το `http://127.0.0.1:8000` (override με `VITE_API_BASE`).
+
+### Routing & screens
+
+`react-router-dom` v6 με **`HashRouter`** — ΟΧΙ `BrowserRouter`. Το packaged app
+φορτώνει το UI με `loadFile()` πάνω από `file://`· το `BrowserRouter` στηρίζεται στο
+History API πάνω σε πραγματικό origin και δίνει λευκή οθόνη εκεί, ενώ δουλεύει
+κανονικά σε dev (Vite σερβίρει πάνω από `http://localhost:5173`). Το `HashRouter`
+δουλεύει και στις δύο περιπτώσεις.
+
+- `App.tsx` — shell: `MetaProvider` + `HashRouter` + persistent nav + `<Routes>`.
+- `MetaContext.tsx` — το `/stats` fetch-άρεται μία φορά στο mount (`useMeta()` hook)·
+  χωρίς αυτό, κάθε screen θα το ξαναφόρτωνε.
+- `screens/HomeScreen.tsx`, `SearchScreen.tsx`, `ProspectsScreen.tsx`,
+  `ProspectFormScreen.tsx` — μία οθόνη ανά route.
+- Prefill mechanism (prospect → search, ή search-history → search): router **state**
+  (όχι query params), εφαρμόζεται μία φορά στο mount μέσω ref-guarded `useEffect`
+  ώστε να μη σβήνει τις αλλαγές του χρήστη σε επόμενα renders.
 
 ---
 

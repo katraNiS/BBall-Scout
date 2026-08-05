@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
 
-from preprocessing import FEATURE_COLS
+from preprocessing import FEATURE_COLS, build_availability_matrix
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -36,11 +36,31 @@ def _weight_array(weights: dict | None) -> np.ndarray:
 
 
 
+# Πόσο απότομα πέφτει η εμπιστοσύνη καθώς λιγοστεύουν τα διαθέσιμα δεδομένα.
+#
+# α = 1.0 → γραμμικό shrinkage: το πλεονέκτημα ενός match μειώνεται αναλογικά
+# με το κλάσμα της πληροφορίας που πραγματικά είχαμε. Ισοδυναμεί με posterior
+# mean όπου το coverage παίζει ρόλο effective sample size — γι' αυτό
+# προτιμήθηκε από ad-hoc πολλαπλασιαστικό penalty.
+#
+# Επιλέχθηκε με μετρημένη σύγκριση (validation/defense_impact.py):
+#   α=0   pure masking — υπερδιόρθωση· ο Alex Caruso (coverage 1.00, προφανές
+#         match) πέφτει 6ος πίσω από rows με 0.67 coverage
+#   α=0.5 era balance πιο κοντά στο baseline, αλλά 4/5 του top-5 έχουν ελλιπή
+#         δεδομένα
+#   α=1.0 top-4 με πλήρη δεδομένα, ιστορικοί αμυντικοί (Hawkins, Kidd,
+#         Christie, Ben Wallace) προσβάσιμοι από την 5η θέση και κάτω  ← εδώ
+#   α≥1.5 οι pre-2016 ξαναεξαφανίζονται — επιστροφή στο αρχικό πρόβλημα
+CONFIDENCE_ALPHA = 1.0
+
+
 def _weighted_similarity(
     user_vec: np.ndarray,
     matrix: np.ndarray,
     weight_arr: np.ndarray,
-) -> np.ndarray:
+    availability: np.ndarray | None = None,
+    alpha: float = CONFIDENCE_ALPHA,
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Weighted L2 similarity μεταξύ user_vec και κάθε row του matrix.
 
@@ -49,21 +69,72 @@ def _weighted_similarity(
     Cosine τιμωρεί παίκτες με extreme stats σε unspecified dimensions —
     L2 τιμωρεί αυτούς που απέχουν από τις τιμές που ζήτησε ο χρήστης.
 
-    distance_i = sqrt(Σ w_j × (user_j - player_j)²)
+    distance_i = sqrt(Σ w_j × (user_j - player_j)² / Σ w_j)
     similarity  = 1 / (1 + distance)  →  (0, 1], 1 = τέλεια αντιστοιχία
 
     Χρησιμοποιούμε 1/(1+d) αντί exp(-d) γιατί τα z-score distances είναι
     φυσικά μεγάλα (sqrt(5 features × 2²) ≈ 4.5), οπότε exp(-4.5) ≈ 0.01
     κάνει όλα τα scores ίδια. Το 1/(1+4.5) = 0.18 δίνει χρήσιμο range.
+
+    Weighted RMS: διαιρούμε με το άθροισμα βαρών ώστε το distance να μην
+    αυξάνεται καθώς ορίζονται περισσότερα stats. Χωρίς normalization,
+    6 stats με diff=0.5 δίνουν sqrt(6×0.25)≈1.22 αντί sqrt(0.25)=0.5.
+
+    ── Availability-aware masking ────────────────────────────────────────────
+    Όταν δίνεται `availability` (boolean, ίδιο shape με το matrix), το distance
+    υπολογίζεται ΜΟΝΟ στις διαστάσεις που έχουν πραγματικά δεδομένα για κάθε
+    row, με renormalization του Σw σε αυτές. Λόγος: τα hustle stats λείπουν
+    πριν το 2016-17 και το group-median imputation τοποθετούσε το 56% της βάσης
+    σε σταθερή απόσταση τιμωρίας — defensive queries επέστρεφαν 0% pre-2016.
+
+    Σκέτο masking όμως ΥΠΕΡΔΙΟΡΘΩΝΕΙ: ένα row που κρίνεται σε 2 αντί για 3
+    διαστάσεις έχει λιγότερες ευκαιρίες να απέχει, άρα παίρνει ευκολότερα καλό
+    score (μετρημένο: 64-88% pre-2016 έναντι baseline 58%).
+
+    Η διόρθωση είναι shrinkage προς το population prior:
+
+        coverage  = Σ(w των διαθέσιμων) / Σ(w των ζητούμενων)
+        sim_final = sim_pop + coverage^α × (sim_masked − sim_pop)
+
+    όπου `sim_pop` είναι το similarity ενός τυπικού παίκτη. Επειδή το feature
+    space είναι z-scored (mean 0, std 1), το expected squared distance ανά
+    διάσταση είναι αναλυτικά υπολογίσιμο:
+
+        E[(u_j − P_j)²] = E[P_j²] − 2·u_j·E[P_j] + u_j² = 1 + u_j²
+
+    Ιδιότητες που μας ενδιαφέρουν:
+      - coverage = 1 → sim_final = sim_masked ακριβώς. Μηδενική επίδραση σε
+        offensive queries και σε tracking-era παίκτες (κανένα regression).
+      - coverage → 0 → sim_final → sim_pop: το row πέφτει στον μέσο όρο αντί
+        να ανεβαίνει ψεύτικα. «Δεν ξέρουμε» ≠ «ταιριάζει».
+
+    Επιστρέφει (similarity, coverage) — το coverage εκτίθεται στο UI ως
+    ένδειξη εμπιστοσύνης του match.
     """
-    diff      = matrix - user_vec          # (n_players, n_features)
-    w_diff_sq = (diff ** 2) * weight_arr   # broadcast weights
-    # Weighted RMS: διαιρούμε με το άθροισμα βαρών ώστε το distance να μην
-    # αυξάνεται καθώς ορίζονται περισσότερα stats. Χωρίς normalization,
-    # 6 stats με diff=0.5 δίνουν sqrt(6×0.25)≈1.22 αντί sqrt(0.25)=0.5.
-    total_w   = weight_arr.sum() if weight_arr.sum() > 0 else 1.0
-    distances = np.sqrt(w_diff_sq.sum(axis=1) / total_w)
-    return 1.0 / (1.0 + distances)
+    diff_sq = (matrix - user_vec) ** 2               # (n_players, n_features)
+    total_w = weight_arr.sum() if weight_arr.sum() > 0 else 1.0
+
+    if availability is None:
+        distances = np.sqrt((diff_sq * weight_arr).sum(axis=1) / total_w)
+        return 1.0 / (1.0 + distances), np.ones(len(matrix))
+
+    avail_w  = (availability * weight_arr).sum(axis=1)   # (n_players,)
+    coverage = avail_w / total_w
+
+    # Masked RMS — μόνο στις διαστάσεις με πραγματικά δεδομένα
+    num       = (diff_sq * weight_arr * availability).sum(axis=1)
+    has_data  = avail_w > 0
+    d_masked  = np.full(len(matrix), np.inf)
+    d_masked[has_data] = np.sqrt(num[has_data] / avail_w[has_data])
+    sim_masked = 1.0 / (1.0 + d_masked)
+
+    # Population baseline (ίδιο για κάθε row — εξαρτάται μόνο από το query)
+    d_pop   = np.sqrt((weight_arr * (1.0 + user_vec ** 2)).sum() / total_w)
+    sim_pop = 1.0 / (1.0 + d_pop)
+
+    sim = sim_pop + (coverage ** alpha) * (sim_masked - sim_pop)
+    sim[~has_data] = sim_pop      # καμία διάσταση γνωστή → καθαρά prior
+    return sim, coverage
 
 
 def _parse_season_range(seasons: str | None) -> tuple[int | None, int | None]:
@@ -167,6 +238,8 @@ def find_similar(
     active_traits: list[str] | None = None,
     trait_boost: float = 0.004,
     season_range: str | None = None,
+    availability: np.ndarray | None = None,
+    confidence_alpha: float = CONFIDENCE_ALPHA,
 ) -> pd.DataFrame:
     """
     Βρίσκει τους top_n πιο όμοιους παίκτες.
@@ -184,10 +257,18 @@ def find_similar(
         active_traits: traits που θέλει ο χρήστης (boost, όχι hard filter)
         trait_boost:   bonus score ανά shared trait
         season_range:  "2010-2025" για φιλτράρισμα εποχής (start-end year)
+        availability:  boolean array (n_rows × n_features) — True όπου η τιμή
+                       είναι πραγματική, False όπου imputed. Αν είναι None,
+                       παράγεται αυτόματα από τις `avail_*` στήλες του df_clean
+                       (βλ. preprocessing.build_availability_matrix). Πέρασε
+                       ρητά έναν πίνακα από True για να απενεργοποιήσεις το
+                       masking.
+        confidence_alpha: εκθέτης του shrinkage — μεγαλύτερο = αυστηρότερη
+                       τιμωρία των rows με ελλιπή δεδομένα.
 
     Returns:
         DataFrame με columns: player_name, season, compound_archetype,
-        similarity, boost, final_score, explanation, + original stats
+        similarity, coverage, boost, final_score, explanation, + original stats
     """
     # ── 1. Μετατροπή user stats σε scaled vector ──────────────────────────────
     # Ξεκινάμε από τα population means (= 0 μετά το z-score scaling)
@@ -218,6 +299,10 @@ def find_similar(
     df_filtered   = df_clean[mask].reset_index(drop=True)
     mat_filtered  = feature_matrix[mask.values]
 
+    if availability is None:
+        availability = build_availability_matrix(df_clean)
+    avail_filtered = np.asarray(availability, dtype=bool)[mask.values]
+
     if df_filtered.empty:
         return pd.DataFrame()
 
@@ -229,8 +314,12 @@ def find_similar(
     user_masked   = user_vec[specified_mask]
     matrix_masked = mat_filtered[:, specified_mask]
     w_masked      = w_arr[specified_mask]
+    avail_masked  = avail_filtered[:, specified_mask]
 
-    similarities = _weighted_similarity(user_masked, matrix_masked, w_masked)
+    similarities, coverage = _weighted_similarity(
+        user_masked, matrix_masked, w_masked,
+        availability=avail_masked, alpha=confidence_alpha,
+    )
 
     # ── 4. Archetype boost ────────────────────────────────────────────────────
     boost = np.zeros(len(df_filtered))
@@ -246,6 +335,7 @@ def find_similar(
     # Κρατάμε τη σεζόν με το υψηλότερο final_score ανά player_id
     df_scored = df_filtered.copy()
     df_scored["_similarity"] = similarities
+    df_scored["_coverage"]   = coverage
     df_scored["_boost"]      = boost
     df_scored["_final"]      = final_scores
 
@@ -280,6 +370,9 @@ def find_similar(
 
     out = df_best[result_cols].copy()
     out["similarity"]   = df_best["_similarity"].round(4).values
+    # Κλάσμα του ζητούμενου weight που είχε πραγματικά δεδομένα (1.0 = πλήρης
+    # πληροφορία). Το UI το δείχνει ως confidence indicator του match.
+    out["coverage"]     = df_best["_coverage"].round(4).values
     out["boost"]        = df_best["_boost"].round(4).values
     out["final_score"]  = df_best["_final"].round(4).values
     out["explanation"]  = explanations

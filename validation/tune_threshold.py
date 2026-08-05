@@ -26,13 +26,38 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(Path(__file__).parent))
 
-from archetypes import TRAIT_THRESHOLD, compute_trait_scores  # noqa: E402
+from archetypes import (COMPOUNDS, TRAIT_THRESHOLD,  # noqa: E402
+                        assign_archetypes, compute_trait_scores)
 from evaluate import TRAIT_NAMES, evaluate  # noqa: E402
 from labels import LABELS  # noqa: E402
 from matching import build_resolver  # noqa: E402
 from preprocessing import load_and_clean  # noqa: E402
 
 GRID = [round(x, 2) for x in np.arange(0.30, 0.96, 0.05)]
+
+
+def dataset_coverage(scored_df, threshold: float) -> dict:
+    """
+    Usability metrics σε ΟΛΟ το dataset, όχι μόνο στα 72 labeled stars.
+
+    Κρίσιμο για την επιλογή threshold: τα labeled παίκτες είναι stars με 6-10
+    active traits και δεν γίνονται ΠΟΤΕ "Unclassified", οπότε το macro-F1 είναι
+    τυφλό στο βασικό κόστος ενός υψηλού threshold — ότι οι role players μένουν
+    χωρίς archetype. Στο 0.6 το 15% του dataset είναι Unclassified· στο 0.9
+    γίνεται 32%, δηλαδή ένας στους τρεις παίκτες δεν παίρνει label στο UI.
+    """
+    res     = assign_archetypes(scored_df, threshold=threshold)
+    labels  = res["compound_archetype"]
+    presets = set(COMPOUNDS.keys())
+    is_pre  = labels.isin(presets)
+    return {
+        "traits_per_row": float(res["active_traits"].apply(len).mean()),
+        "unclassified":   float((labels == "Unclassified").mean()),
+        # fallback = ενεργά traits αλλά κανένα preset δεν ταίριαξε → σύνθετο
+        # όνομα τύπου "Modifier Noun" αντί για κανονικό archetype
+        "fallback":       float((~is_pre & (labels != "Unclassified")).mean()),
+        "presets_used":   int(labels[is_pre].nunique()),
+    }
 
 
 def _fmt(x: float) -> str:
@@ -61,6 +86,7 @@ def main() -> None:
 
     # Sweep
     results = {thr: evaluate(scored, resolved, thr) for thr in GRID}
+    coverage = {thr: dataset_coverage(scored, thr) for thr in GRID}
 
     # Βέλτιστο global threshold κατά macro-F1
     best_thr = max(GRID, key=lambda t: (results[t].macro_f1 if results[t].macro_f1 == results[t].macro_f1 else -1))
@@ -72,7 +98,7 @@ def main() -> None:
         cand = [(thr, f) for thr, f in cand if f == f]
         per_trait_best[t] = max(cand, key=lambda x: x[1]) if cand else (float("nan"), float("nan"))
 
-    lines = _render(results, best_thr, per_trait_best, resolved, missing)
+    lines = _render(results, best_thr, per_trait_best, resolved, missing, coverage)
     report = "\n".join(lines)
     print(report)
     out = Path(__file__).parent / "REPORT.md"
@@ -80,7 +106,7 @@ def main() -> None:
     print(f"\n[written] {out}")
 
 
-def _render(results, best_thr, per_trait_best, resolved, missing) -> list[str]:
+def _render(results, best_thr, per_trait_best, resolved, missing, coverage) -> list[str]:
     cur = TRAIT_THRESHOLD
     cur_res = results.get(cur) or results[min(GRID, key=lambda t: abs(t - cur))]
     L: list[str] = []
@@ -120,13 +146,20 @@ def _render(results, best_thr, per_trait_best, resolved, missing) -> list[str]:
     # Threshold sweep
     A("## Threshold sweep")
     A("")
-    A("| Threshold | Macro-F1 | Archetype top-1 |")
-    A("|---|---|---|")
+    A("Οι δύο πρώτες στήλες μετρώνται στα 72 labeled stars· οι υπόλοιπες σε ΟΛΟ")
+    A("το dataset. Τα stars έχουν 6-10 active traits και δεν γίνονται ποτέ")
+    A("Unclassified, οπότε το macro-F1 από μόνο του **δεν βλέπει** το κόστος ενός")
+    A("υψηλού threshold στους role players.")
+    A("")
+    A("| Threshold | Macro-F1 | Archetype top-1 | Traits/row | Unclassified | Fallback | Presets |")
+    A("|---|---|---|---|---|---|---|")
     for thr in GRID:
         r = results[thr]
-        mark = " ⬅ current" if thr == cur else (" ⬅ best" if thr == best_thr else "")
+        c = coverage[thr]
+        mark = " ⬅ current" if thr == cur else (" ⬅ best F1" if thr == best_thr else "")
         A(f"| {thr}{mark} | {_fmt(r.macro_f1)} | {r.archetype_correct}/{r.archetype_total} "
-          f"({_fmt(r.archetype_accuracy)}) |")
+          f"({_fmt(r.archetype_accuracy)}) | {c['traits_per_row']:.2f} | "
+          f"{c['unclassified']:.1%} | {c['fallback']:.1%} | {c['presets_used']} |")
     A("")
 
     # Structural misses (design, όχι threshold)

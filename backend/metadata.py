@@ -1,5 +1,5 @@
 """
-UI / API metadata για τα 20 features.
+UI / API metadata για τα 23 features.
 
 Single source of truth για labels, ranges, format και grouping — mirror των
 constants που ζούσαν στο `app/streamlit_app.py`. Το `/stats` endpoint σερβίρει
@@ -31,6 +31,9 @@ ALL_TRAITS: list[str] = [
 PCT_COLS: set[str] = {
     "usg_pct", "ts_pct", "efg_pct", "fg3_pct", "ft_pct",
     "ast_pct", "oreb_pct", "dreb_pct", "pct_pts_2pt_mr",
+    # Defensive impact: αποθηκεύονται ως fractions (−0.055 = ο αντίπαλος
+    # σουτάρει 5.5 ποσοστιαίες μονάδες χειρότερα), άρα ×100 για display.
+    "d_fg3_diff", "d_rim_diff",
 }
 
 DISPLAY_LABELS: dict[str, str] = {
@@ -51,9 +54,45 @@ DISPLAY_LABELS: dict[str, str] = {
     "stl":            "Steals",
     "blk":            "Blocks",
     "deflections":    "Deflections",
+    # Το μόνο feature όπου χαμηλό = καλύτερο· το λέμε ρητά στο label γιατί σε
+    # όλα τα υπόλοιπα ο χρήστης περιμένει "ψηλότερο = καλύτερο".
+    "def_rating":     "Defensive Rating (lower = better)",
+    "d_fg3_diff":     "Opp 3P% vs Normal (lower = better)",
+    "d_rim_diff":     "Opp Rim FG% vs Normal (lower = better)",
     "net_rating":     "Net Rating",
     "height_cm":      "Height (cm)",
     "weight_lbs":     "Weight (lbs)",
+}
+
+# Σύντομα keys για πυκνά UI (στήλες πίνακα, άξονες radar, ιστορικό αναζητήσεων).
+# Ξεχωριστά από τα DISPLAY_LABELS επίτηδες: εκείνα είναι φτιαγμένα για ανάγνωση
+# ("Defensive Rating (lower = better)"), αυτά για μια στήλη 90px. Χωρίς αυτά ο
+# client αναγκάζεται να μαντεύει με regex πάνω στο label — και μαντεύει λάθος
+# ("Height (cm)" → "cm").
+SHORT_LABELS: dict[str, str] = {
+    "pts":            "PTS",
+    "usg_pct":        "USG%",
+    "ts_pct":         "TS%",
+    "efg_pct":        "eFG%",
+    "fg3a":           "3PA",
+    "fg3_pct":        "3P%",
+    "fta":            "FTA",
+    "ft_pct":         "FT%",
+    "pct_pts_2pt_mr": "MR%PTS",
+    "ast_pct":        "AST%",
+    "ast_to":         "AST/TO",
+    "tov":            "TOV",
+    "oreb_pct":       "OREB%",
+    "dreb_pct":       "DREB%",
+    "stl":            "STL",
+    "blk":            "BLK",
+    "deflections":    "DEFL",
+    "def_rating":     "DRTG",
+    "d_fg3_diff":     "D3P±",
+    "d_rim_diff":     "DRIM±",
+    "net_rating":     "NETRTG",
+    "height_cm":      "HT",
+    "weight_lbs":     "WT",
 }
 
 # (python format template, unit suffix) — εφαρμόζεται στο display value
@@ -75,6 +114,9 @@ FORMAT: dict[str, tuple[str, str]] = {
     "stl":            ("{:.2f}", "/gm"),
     "blk":            ("{:.2f}", "/gm"),
     "deflections":    ("{:.2f}", "/gm"),
+    "def_rating":     ("{:.1f}", ""),
+    "d_fg3_diff":     ("{:+.1f}", "%"),
+    "d_rim_diff":     ("{:+.1f}", "%"),
     "net_rating":     ("{:+.1f}", ""),
     "height_cm":      ("{:.0f}", " cm"),
     "weight_lbs":     ("{:.0f}", " lbs"),
@@ -99,6 +141,10 @@ RANGES: dict[str, tuple[float, float, float]] = {
     "stl":            (0.0,   3.5,   0.1),
     "blk":            (0.0,   4.0,   0.1),
     "deflections":    (0.0,   6.0,   0.1),
+    # Πραγματικό εύρος μετά το MPG filter: 89.0–125.4 (mean 106.1, std 5.3)
+    "def_rating":     (90.0,  125.0, 0.5),
+    "d_fg3_diff":     (-15.0, 15.0,  0.5),
+    "d_rim_diff":     (-15.0, 15.0,  0.5),
     "net_rating":     (-20.0, 20.0,  0.5),
     "height_cm":      (170.0, 225.0, 1.0),
     "weight_lbs":     (150.0, 290.0, 5.0),
@@ -110,7 +156,8 @@ GROUPS: dict[str, list[str]] = {
     "Shooting":             ["fg3a", "fg3_pct", "fta", "ft_pct", "pct_pts_2pt_mr"],
     "Playmaking":           ["ast_pct", "ast_to", "tov"],
     "Rebounding":           ["oreb_pct", "dreb_pct"],
-    "Defense":              ["stl", "blk", "deflections"],
+    "Defense":              ["stl", "blk", "deflections", "def_rating",
+                            "d_fg3_diff", "d_rim_diff"],
     "Impact & Physical":    ["net_rating", "height_cm", "weight_lbs"],
 }
 
@@ -145,6 +192,7 @@ def stats_metadata() -> list[dict]:
             out.append({
                 "key":     col,
                 "label":   DISPLAY_LABELS[col],
+                "short":   SHORT_LABELS.get(col, DISPLAY_LABELS[col]),
                 "group":   group_name,
                 "min":     lo,
                 "max":     hi,

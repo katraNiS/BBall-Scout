@@ -1,100 +1,129 @@
-import { useEffect, useMemo, useState } from "react";
-import { api, ApiError } from "./api";
-import type { StatMeta, MatchResult } from "./types";
-import StatBuilder, { type Controls } from "./components/StatBuilder";
-import ResultCard from "./components/ResultCard";
+// App shell: title bar + dataset status strip + tab bar, γύρω από τα routes.
+//
+// HashRouter (ΟΧΙ BrowserRouter): το packaged app φορτώνει το UI με loadFile()
+// πάνω από file://. Το BrowserRouter στηρίζεται στο History API πάνω σε ένα
+// πραγματικό origin και δίνει λευκή οθόνη στο packaged build (ενώ δουλεύει
+// κανονικά σε dev, όπου το Vite σερβίρει πάνω από http://localhost:5173).
+// Το HashRouter δουλεύει και στις δύο περιπτώσεις.
+import { useEffect, useState } from "react";
+import { HashRouter, NavLink, Routes, Route, useLocation } from "react-router-dom";
 
-export default function App() {
-  const [stats, setStats] = useState<StatMeta[]>([]);
-  const [traits, setTraits] = useState<string[]>([]);
-  const [traitLabels, setTraitLabels] = useState<Record<string, string>>({});
-  const [controls, setControls] = useState<Controls>({});
+import { api } from "./api";
+import { MetaProvider, useMeta } from "./MetaContext";
+import { compactCount } from "./statFormat";
+import HomeScreen from "./screens/HomeScreen";
+import SearchScreen from "./screens/SearchScreen";
+import ProspectsScreen from "./screens/ProspectsScreen";
+import ProspectFormScreen from "./screens/ProspectFormScreen";
 
-  const [selectedTraits, setSelectedTraits] = useState<string[]>([]);
-  const [yearRange, setYearRange] = useState<[number, number]>([2010, 2025]);
-  const [topN, setTopN] = useState(10);
+interface Health {
+  status: string;
+  players: number;
+  rows: number;
+}
 
-  const [results, setResults] = useState<MatchResult[] | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [metaError, setMetaError] = useState<string | null>(null);
-  const [backendOk, setBackendOk] = useState<boolean | null>(null);
+// Οι ετικέτες δεξιά στο tab bar δίνουν στην κάθε οθόνη μια θέση στη ροή
+// (workspace → engine → board → record) — μικρή αλλά χρήσιμη πλοήγηση σε ένα
+// εργαλείο που ο χρήστης ανοίγει καθημερινά.
+const SCREEN_LABELS: { match: RegExp; label: string }[] = [
+  { match: /^\/search/, label: "▪2 match engine" },
+  { match: /^\/prospects\/(new|.+\/edit)/, label: "▪4 record" },
+  { match: /^\/prospects/, label: "▪3 board" },
+  { match: /^\/$/, label: "▪1 workspace" },
+];
 
-  // ── Load metadata στο mount ────────────────────────────────────────────────
+function TitleBar() {
+  return (
+    <div className="titlebar">
+      <span className="titlebar-mark" />
+      <span className="titlebar-name">ProspectMatch</span>
+      <span className="titlebar-meta">nba_stats_full.csv</span>
+    </div>
+  );
+}
+
+function StatusStrip({ health, featureCount }: { health: Health | null; featureCount: number }) {
+  const ready = health?.status === "ok";
+
+  return (
+    <div className="statusstrip">
+      <span className="status-state">
+        <span className={`status-dot${ready ? "" : " pending"}`} />
+        <span>{ready ? "DATASET READY" : "LOADING"}</span>
+      </span>
+      {health && (
+        <>
+          <span>{compactCount(health.rows)} season-rows</span>
+          <span className="sep">|</span>
+          <span>{compactCount(health.players)} players</span>
+          <span className="sep">|</span>
+          <span>{featureCount} features</span>
+        </>
+      )}
+      <span className="push">tracking coverage 2016+ · defensive matchups 2013+</span>
+      <span className="sep">|</span>
+      <span>{api.base.replace(/^https?:\/\//, "")}</span>
+    </div>
+  );
+}
+
+function TabBar() {
+  const { pathname } = useLocation();
+  const label = SCREEN_LABELS.find((s) => s.match.test(pathname))?.label ?? "";
+
+  return (
+    <nav className="tabbar">
+      <NavLink to="/" end className={({ isActive }) => `tab${isActive ? " active" : ""}`}>
+        Home
+      </NavLink>
+      <NavLink to="/search" className={({ isActive }) => `tab${isActive ? " active" : ""}`}>
+        Search
+      </NavLink>
+      <NavLink to="/prospects" className={({ isActive }) => `tab${isActive ? " active" : ""}`}>
+        Prospects
+      </NavLink>
+      <span className="tabbar-right">{label}</span>
+    </nav>
+  );
+}
+
+function Shell() {
+  const { error, stats } = useMeta();
+  const [health, setHealth] = useState<Health | null>(null);
+
   useEffect(() => {
-    (async () => {
-      try {
-        const meta = await api.statsMeta();
-        setStats(meta.stats);
-        setTraits(meta.traits);
-        setTraitLabels(meta.trait_labels);
-        const init: Controls = {};
-        for (const s of meta.stats) {
-          init[s.key] = { enabled: false, value: s.default, weight: 1 };
-        }
-        setControls(init);
-        setBackendOk(true);
-      } catch (e) {
-        setMetaError(e instanceof ApiError ? e.message : String(e));
-        setBackendOk(false);
-      }
-    })();
+    api
+      .health()
+      .then(setHealth)
+      .catch(() => setHealth(null));
   }, []);
 
-  const enabledKeys = useMemo(
-    () => stats.map((s) => s.key).filter((k) => controls[k]?.enabled),
-    [stats, controls]
-  );
-
-  const patchControl = (key: string, patch: Partial<Controls[string]>) =>
-    setControls((prev) => ({ ...prev, [key]: { ...prev[key], ...patch } }));
-
-  // ── Run search ─────────────────────────────────────────────────────────────
-  const runSearch = async () => {
-    const statsPayload: Record<string, number> = {};
-    const weightsPayload: Record<string, number> = {};
-    for (const key of enabledKeys) {
-      const c = controls[key];
-      statsPayload[key] = c.value;
-      if (c.weight !== 1) weightsPayload[key] = c.weight;
-    }
-
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await api.similar({
-        stats: statsPayload,
-        weights: Object.keys(weightsPayload).length ? weightsPayload : undefined,
-        top_n: topN,
-        active_traits: selectedTraits.length ? selectedTraits : undefined,
-        season_range: `${yearRange[0]}-${yearRange[1]}`,
-      });
-      setResults(res.results);
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
-      setResults(null);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const statByKey = useMemo(() => {
-    const m: Record<string, StatMeta> = {};
-    for (const s of stats) m[s.key] = s;
-    return m;
-  }, [stats]);
-
-  const showRadar = enabledKeys.length >= 3;
-
-  // ── Metadata load failure ────────────────────────────────────────────────────
-  if (metaError) {
+  // Backend offline: πλήρης οθόνη σφάλματος για κάθε route — χωρίς /stats δεν
+  // υπάρχει stat builder, οπότε κάθε οθόνη θα ήταν κέλυφος.
+  if (error) {
     return (
-      <div className="state-msg">
-        <div className="error-box" style={{ maxWidth: 480, margin: "80px auto" }}>
-          <b>Αποτυχία σύνδεσης με τον backend.</b>
-          <div style={{ marginTop: 8 }}>{metaError}</div>
-          <div style={{ marginTop: 10, color: "var(--text-dim2)" }}>
-            Ξεκίνα τον server: <code>uvicorn main:app</code> στο <code>backend/</code>.
+      <div className="app">
+        <TitleBar />
+        <div className="fatal">
+          <div className="fatal-box notice-box">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#c58e4a" strokeWidth="1.5">
+              <path d="M12 9v4m0 4h.01M10.3 3.9 2.4 17.5A1.9 1.9 0 0 0 4 20.4h16a1.9 1.9 0 0 0 1.6-2.9L13.7 3.9a1.9 1.9 0 0 0-3.4 0Z" />
+            </svg>
+            <div>
+              <div className="notice-box-title">Αποτυχία σύνδεσης με τον backend</div>
+              <div className="notice-box-body">
+                {error}
+                <br />
+                Ξεκίνα τον server με <code className="mono">uvicorn main:app</code> μέσα στο{" "}
+                <code className="mono">backend/</code>, ή τρέξε <code className="mono">npm run dev</code>{" "}
+                από τη ρίζα του project.
+              </div>
+              <div className="notice-box-actions">
+                <button type="button" className="linkbtn" onClick={() => window.location.reload()}>
+                  Επανάληψη
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -102,142 +131,27 @@ export default function App() {
   }
 
   return (
-    <div className="layout">
-      {/* ── Sidebar ── */}
-      <aside className="sidebar">
-        <h1>🏀 ProspectMatch</h1>
-        <div className="subtitle">NBA Player Similarity Engine</div>
-
-        <section>
-          <h3>Season Range</h3>
-          <div className="range-row">
-            <input
-              type="range"
-              min={1996}
-              max={2025}
-              value={yearRange[0]}
-              onChange={(e) =>
-                setYearRange([Math.min(+e.target.value, yearRange[1]), yearRange[1]])
-              }
-            />
-            <input
-              type="range"
-              min={1996}
-              max={2025}
-              value={yearRange[1]}
-              onChange={(e) =>
-                setYearRange([yearRange[0], Math.max(+e.target.value, yearRange[0])])
-              }
-            />
-          </div>
-          <div className="range-val" style={{ textAlign: "left" }}>
-            {yearRange[0]} – {yearRange[1]}
-          </div>
-        </section>
-
-        <section>
-          <h3>Trait Boost</h3>
-          <div className="hint">Μικρό bonus για παίκτες με αυτά τα traits — δεν αποκλείει κανέναν.</div>
-          <select
-            multiple
-            value={selectedTraits}
-            onChange={(e) =>
-              setSelectedTraits(Array.from(e.target.selectedOptions, (o) => o.value))
-            }
-          >
-            {traits.map((t) => (
-              <option key={t} value={t}>
-                {traitLabels[t] ?? t}
-              </option>
-            ))}
-          </select>
-        </section>
-
-        <section>
-          <h3>Αριθμός αποτελεσμάτων: {topN}</h3>
-          <div className="range-row">
-            <input
-              type="range"
-              min={5}
-              max={20}
-              value={topN}
-              onChange={(e) => setTopN(+e.target.value)}
-            />
-          </div>
-        </section>
-
-        <div className="status-line">
-          <span className={`status-dot ${backendOk ? "ok" : "down"}`} />
-          {backendOk ? `Connected — ${api.base}` : "Backend offline"}
-        </div>
-      </aside>
-
-      {/* ── Main ── */}
-      <main className="main">
-        <header>
-          <h2>ProspectMatch</h2>
-          <p className="lede">
-            Ορίσε το player profile που ψάχνεις — stats + βάρη — και βρες τους πιο όμοιους
-            παίκτες της NBA.
-          </p>
-        </header>
-        <hr className="divider" />
-
-        <StatBuilder stats={stats} controls={controls} onChange={patchControl} />
-
-        {enabledKeys.length > 0 && (
-          <div className="summary-pills">
-            {enabledKeys.map((k, i) => {
-              const c = controls[k];
-              const meta = statByKey[k];
-              const dec = meta.step < 1 ? (meta.step < 0.5 ? 2 : 1) : 0;
-              return (
-                <span key={k}>
-                  {i > 0 && " · "}
-                  <b>{meta.label}</b>: {c.value.toFixed(dec)}
-                  {meta.unit}
-                  {c.weight !== 1 && <span className="wt"> ×{c.weight}</span>}
-                </span>
-              );
-            })}
-          </div>
-        )}
-
-        <button
-          className="run-btn"
-          disabled={enabledKeys.length === 0 || loading}
-          onClick={runSearch}
-        >
-          {loading ? (
-            <>
-              <span className="spinner" /> &nbsp;Αναζήτηση...
-            </>
-          ) : enabledKeys.length === 0 ? (
-            "Άναψε τουλάχιστον ένα stat"
-          ) : (
-            "🔍 Βρες παίκτες"
-          )}
-        </button>
-
-        {error && <div className="error-box">{error}</div>}
-
-        {results && !loading && (
-          <>
-            {results.length === 0 ? (
-              <div className="state-msg">
-                Δεν βρέθηκαν αποτελέσματα. Δοκίμασε να διευρύνεις το season range.
-              </div>
-            ) : (
-              <>
-                <h3 className="results-head">Top {results.length} matches</h3>
-                {results.map((r) => (
-                  <ResultCard key={`${r.player_name}-${r.season}`} r={r} showRadar={showRadar} />
-                ))}
-              </>
-            )}
-          </>
-        )}
-      </main>
+    <div className="app">
+      <TitleBar />
+      <StatusStrip health={health} featureCount={stats.length} />
+      <TabBar />
+      <Routes>
+        <Route path="/" element={<HomeScreen />} />
+        <Route path="/search" element={<SearchScreen />} />
+        <Route path="/prospects" element={<ProspectsScreen />} />
+        <Route path="/prospects/new" element={<ProspectFormScreen />} />
+        <Route path="/prospects/:id/edit" element={<ProspectFormScreen />} />
+      </Routes>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <MetaProvider>
+      <HashRouter>
+        <Shell />
+      </HashRouter>
+    </MetaProvider>
   );
 }
